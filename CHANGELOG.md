@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.2...v0.2.3) (2026-09-22)
+
+
+### Performance Improvements
+
+* keep MP3 polyphase PCM in an Array ([#19](https://github.com/Emerging-Patterns/ezaudio/issues/19)) ([11b6788](https://github.com/Emerging-Patterns/ezaudio/commit/11b67880798fa01cebd8adb9456d79a7beeac574))
+
 ## [0.2.2](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.1...v0.2.2) (2026-09-22)
 
 
