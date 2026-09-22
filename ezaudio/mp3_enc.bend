@@ -59,15 +59,38 @@ def y.wrap(last: Bool, +ii: U32) -> U32:
     case False{}:
       (ii + 1 : U32)
 
-def y.add(+acc: List<&2, F32>, +ii: U32, +vv: F32) -> List<&2, F32>:
-  f.put(acc, ii, (f.nth(acc, ii) + vv : F32))
+# 64 partials. Each windowed sample indexes one bin; a list walks from the head.
+type Ya is Type:
+  Ya{acc: Array<F32>, cur: F32}
 
-def y.fold(xs: List<&2, F32>, acc: List<&2, F32>, +ii: U32) -> List<&2, F32>:
+def ya.of(got: Array<F32> & F32) -> Ya:
+  (acc, cur) = got
+  Ya{acc, cur}
+
+def y.store(got: Ya, +ii: U32, +vv: F32) -> Array<F32>:
+  match got:
+    case Ya{acc, +cur}:
+      Array.set(F32, acc, ii, (cur + vv : F32))
+
+def y.add(acc: Array<F32>, +ii: U32, +vv: F32) -> Array<F32>:
+  y.store(ya.of(Array.get(F32, acc, ii)), ii, vv)
+
+def y.fold(xs: List<&2, F32>, acc: Array<F32>, +ii: U32) -> Array<F32>:
   match xs:
     case Nil{}:
       acc
     case +hd <> tl:
       y.fold(tl, y.add(acc, ii, hd), y.wrap(U32.is_eq(ii, 63), ii))
+
+def y.pull(hop: Nat, got: Ya, +ii: U32, acc: List<&2, F32>) -> List<&2, F32>:
+  match hop got:
+    case 0n Ya{_acc, +cur}:
+      f.rev(cur <> acc)
+    case 1n+p Ya{tab, +cur}:
+      y.pull(p, ya.of(Array.get(F32, tab, (ii + 1 : U32))), (ii + 1 : U32), (cur <> acc))
+
+def y.list(acc: Array<F32>) -> List<&2, F32>:
+  y.pull(63n, ya.of(Array.get(F32, acc, 0)), 0, [])
 
 # a cosine table handed back beside the coefficient Array.get just read
 type Cf is Type:
@@ -114,7 +137,7 @@ def sb.rows(
 
 # subband samples of one shifted block. x holds 512 windowed-ready samples.
 def an.sb(+xx: List<&2, F32>, +win: List<&2, F32>, cos: Array<F32>) -> Array<F32> & List<&2, F32>:
-  sb.rows(32n, cos, y.fold(mul.zip(xx, win, []), List.replicate(F32, 64n, 0.0), 0), 0, [])
+  sb.rows(32n, cos, y.list(y.fold(mul.zip(xx, win, []), Array.new(F32, 6n, 0.0), 0)), 0, [])
 
 # analysis delay line and finished subband blocks, newest block first
 type An is Data:
