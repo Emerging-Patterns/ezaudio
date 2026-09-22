@@ -544,18 +544,19 @@ def dc.cell(got: Dx, +sec: List<&2, F32>, +kk: U32, +ii: U32) -> Dq:
     case Dx{acc, x0}:
       dc.rd1(dc.x1(acc, kk, ii), sec, kk, ii, x0)
 
-# store one column into the 4 by 8 working rows
-def dc.store(xs: List<&2, F32>, qq: Q4, +ii: U32) -> List<&2, F32>:
+# store one column into the 4 by 8 working Array
+def dc.store(xs: Array<F32>, qq: Q4, +ii: U32) -> Array<F32>:
   match qq:
     case Q4{a0, a1, a2, a3}:
-      f.set(f.set(f.set(f.set(xs, ii, a0), u.add(ii, 8), a1), u.add(ii, 16), a2), u.add(ii, 24), a3)
+      Array.set(F32, Array.set(F32, Array.set(F32, Array.set(F32, xs, ii, a0), u.add(ii, 8), a1),
+        u.add(ii, 16), a2), u.add(ii, 24), a3)
 
 # spectrum Array beside the 4 by 8 working rows
 type Dr is Type:
-  Dr{acc: Array<F32>, xs: List<&2, F32>}
+  Dr{acc: Array<F32>, xs: Array<F32>}
 
-# write one gathered column and keep the spectrum Array
-def dc.stored(got: Dq, xs: List<&2, F32>, +ii: U32) -> Dr:
+# write one gathered column and keep both Arrays
+def dc.stored(got: Dq, xs: Array<F32>, +ii: U32) -> Dr:
   match got:
     case Dq{acc, q}:
       Dr{acc, dc.store(xs, q, ii)}
@@ -620,48 +621,164 @@ def but.end(ee: E8) -> List<&2, F32>:
 def but.out(ee: E8) -> List<&2, F32>:
   ls.take(8n, but.end(ee), [])
 
+# butterfly the eight samples and write the row back
+def but.sum8(acc: Array<F32>, +ys: List<&2, F32>, +base: U32) -> Array<F32>:
+  ix.poke(8n, acc, but.out(but.rot(but.mid(but.sum(f.at(ys, 0), f.at(ys, 1), f.at(ys, 2),
+    f.at(ys, 3), f.at(ys, 4), f.at(ys, 5), f.at(ys, 6), f.at(ys, 7))))), base)
+
+# butterfly one row. The eight inputs are one slice of the working Array.
+def but.use(got: Il, +base: U32) -> Array<F32>:
+  match got:
+    case Il{acc, ys}:
+      but.sum8(acc, ys, base)
+
 # butterfly one row of eight and write it back
-def but.row(+xs: List<&2, F32>, +base: U32) -> List<&2, F32>:
-  ls.poke(8n, xs, but.out(but.rot(but.mid(but.sum(f.at(xs, base), f.at(xs, u.add(base, 1)),
-    f.at(xs, u.add(base, 2)), f.at(xs, u.add(base, 3)), f.at(xs, u.add(base, 4)),
-    f.at(xs, u.add(base, 5)), f.at(xs, u.add(base, 6)), f.at(xs, u.add(base, 7)))))), base)
+def but.row(xs: Array<F32>, +base: U32) -> Array<F32>:
+  but.use(ix.take(xs, base, 7n), base)
 
 # butterfly all four rows
-def dc.fly(hop: Nat, xs: List<&2, F32>, +base: U32) -> List<&2, F32>:
+def dc.fly(hop: Nat, xs: Array<F32>, +base: U32) -> Array<F32>:
   match hop:
     case 0n:
       xs
     case 1n+p:
       dc.fly(p, but.row(xs, base), u.add(base, 8))
 
-# one entry of the 4 by 8 rows
-def sc.t(+rows: List<&2, F32>, +rr: U32, +ii: U32) -> F32:
-  f.at(rows, u.add(u.mul(rr, 8), ii))
+# seven samples of one scatter column, row-major
+type Sv is Type:
+  Sv{xs: Array<F32>, +p0: F32, +p1: F32, +p2: F32, +p3: F32, +p4: F32, +p5: F32, +p6: F32}
+
+# row 3, column ii+1
+def sc.v6(got: Dx, +r0: F32, +r1: F32, +r1n: F32, +r2: F32, +r2n: F32, +r3: F32) -> Sv:
+  match got:
+    case Dx{acc, r3n}:
+      Sv{acc, r0, r1, r1n, r2, r2n, r3, r3n}
+
+# row 3, column ii
+def sc.v5(got: Dx, +ii: U32, +r0: F32, +r1: F32, +r1n: F32, +r2: F32, +r2n: F32) -> Sv:
+  match got:
+    case Dx{acc, r3}:
+      sc.v6(dx.at(acc, u.add(ii, 25)), r0, r1, r1n, r2, r2n, r3)
+
+# row 2, column ii+1
+def sc.v4(got: Dx, +ii: U32, +r0: F32, +r1: F32, +r1n: F32, +r2: F32) -> Sv:
+  match got:
+    case Dx{acc, r2n}:
+      sc.v5(dx.at(acc, u.add(ii, 24)), ii, r0, r1, r1n, r2, r2n)
+
+# row 2, column ii
+def sc.v3(got: Dx, +ii: U32, +r0: F32, +r1: F32, +r1n: F32) -> Sv:
+  match got:
+    case Dx{acc, r2}:
+      sc.v4(dx.at(acc, u.add(ii, 17)), ii, r0, r1, r1n, r2)
+
+# row 1, column ii+1
+def sc.v2(got: Dx, +ii: U32, +r0: F32, +r1: F32) -> Sv:
+  match got:
+    case Dx{acc, r1n}:
+      sc.v3(dx.at(acc, u.add(ii, 16)), ii, r0, r1, r1n)
+
+# row 1, column ii
+def sc.v1(got: Dx, +ii: U32, +r0: F32) -> Sv:
+  match got:
+    case Dx{acc, r1}:
+      sc.v2(dx.at(acc, u.add(ii, 9)), ii, r0, r1)
+
+# row 0, column ii, then the six neighbour slots
+def sc.v0(got: Dx, +ii: U32) -> Sv:
+  match got:
+    case Dx{acc, r0}:
+      sc.v1(dx.at(acc, u.add(ii, 8)), ii, r0)
+
+# the seven samples of column ii, each an Array.get
+def sc.vals(xs: Array<F32>, +ii: U32) -> Sv:
+  sc.v0(dx.at(xs, ii), ii)
+
+# spectrum Array beside the rows Array
+type Sc is Type:
+  Sc{acc: Array<F32>, xs: Array<F32>}
+
+# four band values from the seven column samples
+def sc.bands(
+  +p0: F32, +p1: F32, +p2: F32, +p3: F32, +p4: F32, +p5: F32, +p6: F32
+) -> Q4:
+  Q4{p0, f.add(f.add(p3, p5), p6), f.add(p1, p2), f.add(f.add(p4, p5), p6)}
+
+# store the four bands and hand both Arrays back
+def sc.put4(xs: Array<F32>, acc: Array<F32>, qq: Q4, +yy: U32) -> Sc:
+  match qq:
+    case Q4{a0, a1, a2, a3}:
+      Sc{Array.set(F32, Array.set(F32, Array.set(F32, Array.set(F32, acc, yy, a0), u.add(yy, 18), a1),
+        u.add(yy, 36), a2), u.add(yy, 54), a3), xs}
+
+# write one scatter group from the seven samples
+def sc.put(got: Sv, acc: Array<F32>, +yy: U32) -> Sc:
+  match got:
+    case Sv{xs, p0, p1, p2, p3, p4, p5, p6}:
+      sc.put4(xs, acc, sc.bands(p0, p1, p2, p3, p4, p5, p6), yy)
 
 # scatter one group of four bands into the spectrum Array
-def sc.one(acc: Array<F32>, +rows: List<&2, F32>, +yy: U32, +ii: U32) -> Array<F32>:
-  Array.set(F32, Array.set(F32, Array.set(F32, Array.set(F32, acc, yy, sc.t(rows, 0, ii)), u.add(yy, 18),
-    f.add(f.add(sc.t(rows, 2, ii), sc.t(rows, 3, ii)), sc.t(rows, 3, u.add(ii, 1)))), u.add(yy, 36),
-    f.add(sc.t(rows, 1, ii), sc.t(rows, 1, u.add(ii, 1)))), u.add(yy, 54),
-    f.add(f.add(sc.t(rows, 2, u.add(ii, 1)), sc.t(rows, 3, ii)), sc.t(rows, 3, u.add(ii, 1))))
+def sc.one(acc: Array<F32>, xs: Array<F32>, +yy: U32, +ii: U32) -> Sc:
+  sc.put(sc.vals(xs, ii), acc, yy)
 
 # seven scatter steps; the eighth is the tail
-def sc.go(hop: Nat, acc: Array<F32>, +rows: List<&2, F32>, +yy: U32, +ii: U32) -> Array<F32>:
-  match hop:
-    case 0n:
-      acc
-    case 1n+p:
-      sc.go(p, sc.one(acc, rows, yy, ii), rows, u.add(yy, 72), u.add(ii, 1))
+def sc.go(hop: Nat, got: Sc, +yy: U32, +ii: U32) -> Sc:
+  match hop got:
+    case 0n Sc{acc, xs}:
+      Sc{acc, xs}
+    case 1n+p Sc{acc, xs}:
+      sc.go(p, sc.one(acc, xs, yy, ii), u.add(yy, 72), u.add(ii, 1))
 
-# last scatter group, which has no i+1 neighbour
-def sc.tail(acc: Array<F32>, +rows: List<&2, F32>, +yy: U32) -> Array<F32>:
-  Array.set(F32, Array.set(F32, Array.set(F32, Array.set(F32, acc, yy, sc.t(rows, 0, 7)), u.add(yy, 18),
-    f.add(sc.t(rows, 2, 7), sc.t(rows, 3, 7))), u.add(yy, 36), sc.t(rows, 1, 7)), u.add(yy, 54),
-    sc.t(rows, 3, 7))
+# row 0, 1, 2 and 3 of column 7
+type Sf is Type:
+  Sf{xs: Array<F32>, +r0: F32, +r1: F32, +r2: F32, +r3: F32}
+
+# fourth tail sample, index 31
+def sc.e3(got: Dx, +r0: F32, +r1: F32, +r2: F32) -> Sf:
+  match got:
+    case Dx{acc, r3}:
+      Sf{acc, r0, r1, r2, r3}
+
+# third tail sample, index 23
+def sc.e2(got: Dx, +r0: F32, +r1: F32) -> Sf:
+  match got:
+    case Dx{acc, r2}:
+      sc.e3(dx.at(acc, 31), r0, r1, r2)
+
+# second tail sample, index 15
+def sc.e1(got: Dx, +r0: F32) -> Sf:
+  match got:
+    case Dx{acc, r1}:
+      sc.e2(dx.at(acc, 23), r0, r1)
+
+# first tail sample, index 7, then the other three rows
+def sc.e0(got: Dx) -> Sf:
+  match got:
+    case Dx{acc, r0}:
+      sc.e1(dx.at(acc, 15), r0)
+
+# four tail bands. r3 is both the high sum and the last band.
+def sc.tset(acc: Array<F32>, +r0: F32, +r1: F32, +r2: F32, +r3: F32, +yy: U32) -> Array<F32>:
+  Array.set(F32, Array.set(F32, Array.set(F32, Array.set(F32, acc, yy, r0), u.add(yy, 18),
+    f.add(r2, r3)), u.add(yy, 36), r1), u.add(yy, 54), r3)
+
+# drop the rows Array once the four tail samples have been read
+def sc.tend(got: Sf, acc: Array<F32>, +yy: U32) -> Array<F32>:
+  match got:
+    case Sf{xs, r0, r1, r2, r3}:
+      match xs:
+        case _xs:
+          sc.tset(acc, r0, r1, r2, r3, yy)
+
+# last scatter group, which has no i+1 neighbour. The rows Array ends here.
+def sc.tail(got: Sc, +yy: U32) -> Array<F32>:
+  match got:
+    case Sc{acc, xs}:
+      sc.tend(sc.e0(dx.at(xs, 7)), acc, yy)
 
 # scatter every band of frequency bin kk
-def sc.run(acc: Array<F32>, +rows: List<&2, F32>, +kk: U32) -> Array<F32>:
-  sc.tail(sc.go(7n, acc, rows, kk, 0), rows, u.add(kk, 504))
+def sc.run(acc: Array<F32>, xs: Array<F32>, +kk: U32) -> Array<F32>:
+  sc.tail(sc.go(7n, Sc{acc, xs}, kk, 0), u.add(kk, 504))
 
 # butterfly the gathered rows, then scatter them back into the spectrum
 def dc.rows(got: Dr) -> Dr:
@@ -669,15 +786,15 @@ def dc.rows(got: Dr) -> Dr:
     case Dr{acc, xs}:
       Dr{acc, dc.fly(4n, xs, 0)}
 
-# scatter one frequency bin
+# scatter one frequency bin. The working rows are consumed here.
 def dc.scat(got: Dr, +kk: U32) -> Array<F32>:
   match got:
     case Dr{acc, xs}:
       sc.run(acc, xs, kk)
 
-# one frequency bin of the 32-point DCT-II
+# one frequency bin of the 32-point DCT-II. The working rows stay an Array.
 def dc.one(acc: Array<F32>, +sec: List<&2, F32>, +kk: U32) -> Array<F32>:
-  dc.scat(dc.rows(dc.cols(8n, Dr{acc, List.replicate(F32, 32n, 0.0)}, sec, kk, 0)), kk)
+  dc.scat(dc.rows(dc.cols(8n, Dr{acc, Array.new(F32, 5n, 0.0)}, sec, kk, 0)), kk)
 
 # DCT-II of 18 frequency bins. kk is the first bin's index in the spectrum Array.
 def dc.run(hop: Nat, acc: Array<F32>, +sec: List<&2, F32>, +kk: U32) -> Array<F32>:
