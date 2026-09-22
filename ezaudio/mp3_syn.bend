@@ -734,60 +734,156 @@ def blk.off(+nch: U32, right: Bool) -> U32:
     case True{}:
       u.mul(u.sub(nch, 1), 576)
 
-# one subband sample. right selects the second channel.
-def blk.g(+gr: List<&2, F32>, +nch: U32, +band: U32, +tm: U32, right: Bool) -> F32:
-  f.at(gr, u.add(u.add(blk.off(nch, right), u.mul(band, 18)), tm))
+# one F32 read from the post-DCT granule Array
+type Ga is Type:
+  Ga{gr: Array<F32>, +v: F32}
+
+def ga.of(got: Array<F32> & F32) -> Ga:
+  (gr, v) = got
+  Ga{gr, v}
+
+def ga.at(gr: Array<F32>, +ii: U32) -> Ga:
+  ga.of(Array.get(F32, gr, ii))
+
+# delay line handed back beside the granule Array a write just read
+type Lg is Type:
+  Lg{lin: Array<F32>, gr: Array<F32>}
+
+# subband index. right selects the second channel, which starts at 576.
+def blk.ix(+nch: U32, +band: U32, +tm: U32, right: Bool) -> U32:
+  u.add(u.add(blk.off(nch, right), u.mul(band, 18)), tm)
+
+def blk.rd(gr: Array<F32>, +nch: U32, +band: U32, +tm: U32, right: Bool) -> Ga:
+  ga.at(gr, blk.ix(nch, band, tm, right))
+
+# fourth sample of a four-lane write
+def blk.w4d(g: Ga, lin: Array<F32>, +at: U32, +v0: F32, +v1: F32, +v2: F32) -> Lg:
+  match g:
+    case Ga{gr, v3}:
+      Lg{ln.set(ln.set(ln.set(ln.set(lin, at, v0), u.add(at, 1), v1), u.add(at, 2), v2), u.add(at, 3), v3),
+        gr}
+
+# third sample: band 0, this channel's left slot
+def blk.w4c(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +tm: U32, +v0: F32, +v1: F32) -> Lg:
+  match g:
+    case Ga{gr, v2}:
+      blk.w4d(blk.rd(gr, nch, 0, tm, True{}), lin, at, v0, v1, v2)
+
+# second sample: the right channel of this band
+def blk.w4b(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +tm: U32, +v0: F32) -> Lg:
+  match g:
+    case Ga{gr, v1}:
+      blk.w4c(blk.rd(gr, nch, 0, tm, False{}), lin, nch, at, tm, v0, v1)
+
+# first sample: the left channel of this band
+def blk.w4a(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32) -> Lg:
+  match g:
+    case Ga{gr, v0}:
+      blk.w4b(blk.rd(gr, nch, band, tm, True{}), lin, nch, at, tm, v0)
 
 # write the four samples at zlin + 4*slot
 def blk.w4(
-  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
-) -> Array<F32>:
-  ln.set(ln.set(ln.set(ln.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1),
-    blk.g(gr, nch, band, tm, True{})), u.add(at, 2), blk.g(gr, nch, 0, tm, False{})), u.add(at, 3),
-    blk.g(gr, nch, 0, tm, True{}))
+  lin: Array<F32>, gr: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+) -> Lg:
+  blk.w4a(blk.rd(gr, nch, band, tm, False{}), lin, nch, at, band, tm)
+
+# right channel of a two-lane write
+def blk.w2b(g: Ga, lin: Array<F32>, +at: U32, +v0: F32) -> Lg:
+  match g:
+    case Ga{gr, v1}:
+      Lg{ln.set(ln.set(lin, at, v0), u.add(at, 1), v1), gr}
+
+# left channel of a two-lane write
+def blk.w2a(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32) -> Lg:
+  match g:
+    case Ga{gr, v0}:
+      blk.w2b(blk.rd(gr, nch, band, tm, True{}), lin, at, v0)
 
 # the second write of a row uses band (1+ii), not band 0
 def blk.w2(
-  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
-) -> Array<F32>:
-  ln.set(ln.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1), blk.g(gr, nch, band, tm, True{}))
+  lin: Array<F32>, gr: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+) -> Lg:
+  blk.w2a(blk.rd(gr, nch, band, tm, False{}), lin, nch, at, band, tm)
+
+# second preamble write: band 16 at the next time
+def blk.pre2(got: Lg, +nch: U32, +zlin: U32, +tm: U32) -> Lg:
+  match got:
+    case Lg{lin, gr}:
+      blk.w4(lin, gr, nch, u.add(zlin, 124), 16, u.add(tm, 1))
 
 # preamble: bands 16 and 0 at the current and next time
 def blk.pre(
-  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32
-) -> Array<F32>:
-  blk.w4(blk.w4(lin, gr, nch, u.add(zlin, 60), 16, tm), gr, nch, u.add(zlin, 124), 16, u.add(tm, 1))
+  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32
+) -> Lg:
+  blk.pre2(blk.w4(lin, gr, nch, u.add(zlin, 60), 16, tm), nch, zlin, tm)
 
 # index of the history write, which steps back 16 slots
 def blk.hist(+zlin: U32, +ii: U32) -> U32:
   u.add(u.sub(zlin, u.mul(u.sub(16, ii), 4)), 2)
 
+# fourth lane: this band at the next time, right channel
+def blk.wsd(g: Ga, lin: Array<F32>, +at: U32, +v0: F32, +v1: F32, +v2: F32) -> Lg:
+  match g:
+    case Ga{gr, v3}:
+      Lg{ln.set(ln.set(ln.set(ln.set(lin, at, v0), u.add(at, 1), v1), u.add(at, 2), v2), u.add(at, 3), v3),
+        gr}
+
+# third lane: this band at the next time, left channel
+def blk.wsc(
+  g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32, +v0: F32, +v1: F32
+) -> Lg:
+  match g:
+    case Ga{gr, v2}:
+      blk.wsd(blk.rd(gr, nch, band, u.add(tm, 1), True{}), lin, at, v0, v1, v2)
+
+# second lane: this band at this time, right channel
+def blk.wsb(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32, +v0: F32) -> Lg:
+  match g:
+    case Ga{gr, v1}:
+      blk.wsc(blk.rd(gr, nch, band, u.add(tm, 1), False{}), lin, nch, at, band, tm, v0, v1)
+
+# first lane: this band at this time, left channel
+def blk.wsa(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32) -> Lg:
+  match g:
+    case Ga{gr, v0}:
+      blk.wsb(blk.rd(gr, nch, band, tm, True{}), lin, nch, at, band, tm, v0)
+
 # same band at this time and the next, four lanes
 def blk.ws(
-  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
-) -> Array<F32>:
-  ln.set(ln.set(ln.set(ln.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1),
-    blk.g(gr, nch, band, tm, True{})), u.add(at, 2), blk.g(gr, nch, band, u.add(tm, 1), False{})),
-    u.add(at, 3), blk.g(gr, nch, band, u.add(tm, 1), True{}))
+  lin: Array<F32>, gr: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+) -> Lg:
+  blk.wsa(blk.rd(gr, nch, band, tm, False{}), lin, nch, at, band, tm)
 
 # current-slot writes for row ii
 def blk.i1(
-  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
-) -> Array<F32>:
+  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+) -> Lg:
   blk.ws(lin, gr, nch, u.add(zlin, u.mul(ii, 4)), u.sub(31, ii), tm)
+
+# history write, after the next-slot write has returned the granule
+def blk.i2b(got: Lg, +nch: U32, +zlin: U32, +tm: U32, +ii: U32) -> Lg:
+  match got:
+    case Lg{lin, gr}:
+      blk.w2(lin, gr, nch, blk.hist(zlin, ii), u.add(1, ii), tm)
 
 # next-slot and history writes for row ii
 def blk.i2(
-  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
-) -> Array<F32>:
-  blk.w2(blk.w2(lin, gr, nch, u.add(u.add(zlin, u.mul(ii, 4)), 64), u.add(1, ii), u.add(tm, 1)), gr, nch,
-    blk.hist(zlin, ii), u.add(1, ii), tm)
+  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+) -> Lg:
+  blk.i2b(blk.w2(lin, gr, nch, u.add(u.add(zlin, u.mul(ii, 4)), 64), u.add(1, ii), u.add(tm, 1)), nch,
+    zlin, tm, ii)
+
+# history writes, after the current-slot write has returned the granule
+def blk.ib(got: Lg, +nch: U32, +zlin: U32, +tm: U32, +ii: U32) -> Lg:
+  match got:
+    case Lg{lin, gr}:
+      blk.i2(lin, gr, nch, zlin, tm, ii)
 
 # both writes for row ii
 def blk.i(
-  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
-) -> Array<F32>:
-  blk.i2(blk.i1(lin, gr, nch, zlin, tm, ii), gr, nch, zlin, tm, ii)
+  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+) -> Lg:
+  blk.ib(blk.i1(lin, gr, nch, zlin, tm, ii), nch, zlin, tm, ii)
 
 # (z+896) - z, times 29
 def sp.a1a3(g1: La, +v896: F32) -> La:
@@ -1044,11 +1140,23 @@ def blk.armed1(got: Pp) -> Sb:
 def blk.armed(lin: Array<F32>, pcm: Array<F32>, +nch: U32, +tm: U32) -> Sb:
   blk.armed1(blk.pairs(Pp{pcm, lin}, nch, u.mul(u.mul(32, nch), tm), u.add(u.mul(tm, 64), 60)))
 
+# polyphase state plus the granule Array the rows still read
+type Bg is Type:
+  Bg{st: Sb, gr: Array<F32>}
+
+# preamble done: the pairs read the delay line, the granule stays put
+def blk.arm2(got: Lg, pcm: Array<F32>, +nch: U32, +tm: U32) -> Bg:
+  match got:
+    case Lg{lin, gr}:
+      Bg{blk.armed(lin, pcm, nch, tm), gr}
+
 # open a block: preamble, then the four pairs
-def blk.arm(st: Sb, +gr: List<&2, F32>, +nch: U32, +tm: U32) -> Sb:
-  match st:
-    case Sb{lin, pcm}:
-      blk.armed(blk.pre(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm), pcm, nch, tm)
+def blk.arm(got: Bg, +nch: U32, +tm: U32) -> Bg:
+  match got:
+    case Bg{st, gr}:
+      match st:
+        case Sb{lin, pcm}:
+          blk.arm2(blk.pre(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm), pcm, nch, tm)
 
 def blk.row1(got: Mk, pcm: Array<F32>, +nch: U32, +tm: U32, +ii: U32) -> Sb:
   match got:
@@ -1061,33 +1169,43 @@ def blk.row(
 ) -> Sb:
   blk.row1(mac.k(8n, Mk{mac.z(), lin}, syn, u.add(u.mul(tm, 64), 960), ii, 0), pcm, nch, tm, ii)
 
+# window the row, keeping the granule for the rows still to come
+def blk.step2(
+  got: Lg, pcm: Array<F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
+) -> Bg:
+  match got:
+    case Lg{lin, gr}:
+      Bg{blk.row(lin, pcm, nch, syn, tm, ii), gr}
+
 # one row of the block, from i = 14 down to 0
-def blk.step(st: Sb, +gr: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32) -> Sb:
-  match st:
-    case Sb{lin, pcm}:
-      blk.row(blk.i(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm, ii), pcm, nch, syn, tm, ii)
+def blk.step(got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32) -> Bg:
+  match got:
+    case Bg{st, gr}:
+      match st:
+        case Sb{lin, pcm}:
+          blk.step2(blk.i(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm, ii), pcm, nch, syn, tm, ii)
 
 # fifteen rows
 def blk.i.go(
-  hop: Nat, st: Sb, +gr: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
-) -> Sb:
-  match hop:
-    case 0n:
-      st
-    case 1n+p:
-      blk.i.go(p, blk.step(st, gr, nch, syn, tm, ii), gr, nch, syn, tm, u.sub(ii, 1))
+  hop: Nat, got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
+) -> Bg:
+  match hop got:
+    case 0n Bg{st, gr}:
+      Bg{st, gr}
+    case 1n+p Bg{st, gr}:
+      blk.i.go(p, blk.step(Bg{st, gr}, nch, syn, tm, ii), nch, syn, tm, u.sub(ii, 1))
 
 # one time block
-def blk.one(st: Sb, +gr: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32) -> Sb:
-  blk.i.go(15n, blk.arm(st, gr, nch, tm), gr, nch, syn, tm, 14)
+def blk.one(got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32) -> Bg:
+  blk.i.go(15n, blk.arm(got, nch, tm), nch, syn, tm, 14)
 
 # nine time blocks, time = 0, 2, ..., 16
-def blk.go(hop: Nat, st: Sb, +gr: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32) -> Sb:
-  match hop:
-    case 0n:
-      st
-    case 1n+p:
-      blk.go(p, blk.one(st, gr, nch, syn, tm), gr, nch, syn, u.add(tm, 2))
+def blk.go(hop: Nat, got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32) -> Bg:
+  match hop got:
+    case 0n Bg{st, gr}:
+      Bg{st, gr}
+    case 1n+p Bg{st, gr}:
+      blk.go(p, blk.one(Bg{st, gr}, nch, syn, tm), nch, syn, u.add(tm, 2))
 
 # mono keeps the odd delay-line slots
 def qmf.mono(hop: Nat, dst: List<&2, F32>, got: La, +ii: U32) -> List<&2, F32>:
@@ -1181,6 +1299,10 @@ def sy.dct(mono: Bool, +buf: List<&2, F32>, +sec: List<&2, F32>) -> List<&2, F32
 def sy.lin(+qmf: List<&2, F32>) -> Array<F32>:
   ln.fill(qmf, Array.new(F32, 12n, 0.0), 0)
 
+# DCT-II output. 2048 slots cover mono 576 and stereo 1152.
+def sy.gr(xs: List<&2, F32>) -> Array<F32>:
+  ln.fill(xs, Array.new(F32, 11n, 0.0), 0)
+
 # empty PCM for one granule (2048-slot Array covers mono 576 and stereo 1152)
 def sy.pcm() -> Array<F32>:
   Array.new(F32, 11n, 0.0)
@@ -1189,16 +1311,24 @@ def sy.pcm() -> Array<F32>:
 def sy.pcm.list(+nch: U32, pcm: Array<F32>) -> List<&2, F32>:
   ln.list(pcm, U32.to_nat(u.sub(u.mul(576, nch), 1)))
 
+# the granule Array is finished once the nine blocks have read it
+def syn.drop(gr: Array<F32>, st: Sb, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
+  match gr:
+    case _gr:
+      match st:
+        case Sb{lin, pcm}:
+          Pc{sy.pcm.list(nch, pcm), ov, qmf.save(lin, qmf, nch)}
+
 # run the polyphase and keep the overlap from the IMDCT
-def syn.out(st: Sb, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
-  match st:
-    case Sb{lin, pcm}:
-      Pc{sy.pcm.list(nch, pcm), ov, qmf.save(lin, qmf, nch)}
+def syn.out(got: Bg, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
+  match got:
+    case Bg{st, gr}:
+      syn.drop(gr, st, ov, qmf, nch)
 
 # DCT-II then nine polyphase blocks
 def syn.pcm(+buf: List<&2, F32>, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
-  syn.out(blk.go(9n, Sb{sy.lin(qmf), sy.pcm()}, sy.dct(U32.is_eq(nch, 1), buf, Enc.f.of(Tab.tab.sec())),
-    nch, Enc.f.of(Tab.tab.syn()), 0), ov, qmf, nch)
+  syn.out(blk.go(9n, Bg{Sb{sy.lin(qmf), sy.pcm()}, sy.gr(sy.dct(U32.is_eq(nch, 1), buf,
+    Enc.f.of(Tab.tab.sec())))}, nch, Enc.f.of(Tab.tab.syn()), 0), ov, qmf, nch)
 
 # synthesis of a prepared granule
 def syn.finish(st: Im, +qmf: List<&2, F32>, +nch: U32) -> Pc:
