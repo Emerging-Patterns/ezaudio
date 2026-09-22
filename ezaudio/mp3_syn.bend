@@ -557,9 +557,34 @@ def dc.run(hop: Nat, acc: List<&2, F32>, +sec: List<&2, F32>, +kk: U32) -> List<
     case 1n+p:
       dc.run(p, dc.one(acc, sec, kk), sec, u.add(kk, 1))
 
+# one F32 read from the polyphase delay Array
+type La is Type:
+  La{lin: Array<F32>, +v: F32}
+
+def la.of(got: Array<F32> & F32) -> La:
+  (lin, v) = got
+  La{lin, v}
+
+def ln.at(lin: Array<F32>, +ii: U32) -> La:
+  la.of(Array.get(F32, lin, ii))
+
+def ln.set(lin: Array<F32>, +ii: U32, +vv: F32) -> Array<F32>:
+  Array.set(F32, lin, ii, vv)
+
+def ln.fill(xs: List<&2, F32>, a: Array<F32>, +ii: U32) -> Array<F32>:
+  match xs:
+    case Nil{}:
+      a
+    case +hd <> tl:
+      ln.fill(tl, Array.set(F32, a, ii, hd), u.add(ii, 1))
+
 # four running polyphase sums, a and b
 type Mac is Data:
   Mac{aa: List<&2, F32>, bb: List<&2, F32>}
+
+# MAC state plus the delay line handle mac.* only reads
+type Mk is Type:
+  Mk{st: Mac, lin: Array<F32>}
 
 # mode 0 replaces, mode 2 flips the a product, otherwise both add
 def mac.av(+mode: U32, +zv: F32, +yv: F32, +w0: F32, +w1: F32) -> F32:
@@ -579,24 +604,43 @@ def mac.wr(
     case _:
       Mac{f.set(aa, jj, f.add(f.at(aa, jj), av)), f.set(bb, jj, f.add(f.at(bb, jj), bv))}
 
+# one of the four lanes, y slot
+def mac.jy(
+  st: Mac, got: La, +w0: F32, +w1: F32, +mode: U32, +jj: U32, +zv: F32
+) -> Mk:
+  match st got:
+    case Mac{aa, bb} La{lin2, yv}:
+      Mk{mac.wr(aa, bb, mode, jj, f.add(f.mul(zv, w1), f.mul(yv, w0)), mac.av(mode, zv, yv, w0, w1)), lin2}
+
+# one of the four lanes, z slot
+def mac.jz(
+  st: Mac, got: La, +w0: F32, +w1: F32, +vy: U32, +mode: U32, +jj: U32
+) -> Mk:
+  match got:
+    case La{lin1, zv}:
+      mac.jy(st, ln.at(lin1, u.add(vy, jj)), w0, w1, mode, jj, zv)
+
 # one of the four lanes
 def mac.j(
-  st: Mac, +lin: List<&2, F32>, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj: U32
-) -> Mac:
-  match st:
-    case Mac{aa, bb}:
-      mac.wr(aa, bb, mode, jj, f.add(f.mul(f.at(lin, u.add(vz, jj)), w1), f.mul(f.at(lin, u.add(vy, jj)), w0)),
-        mac.av(mode, f.at(lin, u.add(vz, jj)), f.at(lin, u.add(vy, jj)), w0, w1))
+  st: Mac, lin: Array<F32>, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj: U32
+) -> Mk:
+  mac.jz(st, ln.at(lin, u.add(vz, jj)), w0, w1, vy, mode, jj)
+
+# four lanes of one load, advance one lane
+def mac.js_next(mk: Mk, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj: U32) -> Mk:
+  match mk:
+    case Mk{st, lin}:
+      mac.j(st, lin, w0, w1, vz, vy, mode, jj)
 
 # four lanes of one load
 def mac.js(
-  hop: Nat, st: Mac, +lin: List<&2, F32>, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj: U32
-) -> Mac:
+  hop: Nat, mk: Mk, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj: U32
+) -> Mk:
   match hop:
     case 0n:
-      st
+      mk
     case 1n+p:
-      mac.js(p, mac.j(st, lin, w0, w1, vz, vy, mode, jj), lin, w0, w1, vz, vy, mode, u.add(jj, 1))
+      mac.js(p, mac.js_next(mk, w0, w1, vz, vy, mode, jj), w0, w1, vz, vy, mode, u.add(jj, 1))
 
 # odd or even load
 def mac.mode3(odd: Bool) -> U32:
@@ -623,20 +667,22 @@ def mac.pos(+ii: U32, +kk: U32) -> U32:
   u.add(u.mul(u.sub(14, ii), 16), u.mul(kk, 2))
 
 # one of the eight loads
-def mac.step(st: Mac, +lin: List<&2, F32>, +syn: List<&2, F32>, +zlin: U32, +ii: U32, +kk: U32) -> Mac:
-  mac.js(4n, st, lin, f.at(syn, mac.pos(ii, kk)), f.at(syn, u.add(mac.pos(ii, kk), 1)),
-    u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(kk, 64)),
-    u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(u.sub(15, kk), 64)), mac.mode(kk), 0)
+def mac.step(mk: Mk, +syn: List<&2, F32>, +zlin: U32, +ii: U32, +kk: U32) -> Mk:
+  match mk:
+    case Mk{st, lin}:
+      mac.js(4n, Mk{st, lin}, f.at(syn, mac.pos(ii, kk)), f.at(syn, u.add(mac.pos(ii, kk), 1)),
+        u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(kk, 64)),
+        u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(u.sub(15, kk), 64)), mac.mode(kk), 0)
 
 # eight loads
 def mac.k(
-  hop: Nat, st: Mac, +lin: List<&2, F32>, +syn: List<&2, F32>, +zlin: U32, +ii: U32, +kk: U32
-) -> Mac:
-  match hop:
-    case 0n:
-      st
-    case 1n+p:
-      mac.k(p, mac.step(st, lin, syn, zlin, ii, kk), lin, syn, zlin, ii, u.add(kk, 1))
+  hop: Nat, mk: Mk, +syn: List<&2, F32>, +zlin: U32, +ii: U32, +kk: U32
+) -> Mk:
+  match hop mk:
+    case 0n Mk{st, lin}:
+      Mk{st, lin}
+    case 1n+p Mk{st, lin}:
+      mac.k(p, mac.step(Mk{st, lin}, syn, zlin, ii, kk), syn, zlin, ii, u.add(kk, 1))
 
 # scale a polyphase sum into a sample
 def mac.sc(+vv: F32) -> F32:
@@ -680,22 +726,22 @@ def blk.g(+gr: List<&2, F32>, +nch: U32, +band: U32, +tm: U32, right: Bool) -> F
 
 # write the four samples at zlin + 4*slot
 def blk.w4(
-  lin: List<&2, F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
-) -> List<&2, F32>:
-  f.set(f.set(f.set(f.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1),
+  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+) -> Array<F32>:
+  ln.set(ln.set(ln.set(ln.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1),
     blk.g(gr, nch, band, tm, True{})), u.add(at, 2), blk.g(gr, nch, 0, tm, False{})), u.add(at, 3),
     blk.g(gr, nch, 0, tm, True{}))
 
 # the second write of a row uses band (1+ii), not band 0
 def blk.w2(
-  lin: List<&2, F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
-) -> List<&2, F32>:
-  f.set(f.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1), blk.g(gr, nch, band, tm, True{}))
+  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+) -> Array<F32>:
+  ln.set(ln.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1), blk.g(gr, nch, band, tm, True{}))
 
 # preamble: bands 16 and 0 at the current and next time
 def blk.pre(
-  lin: List<&2, F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32
-) -> List<&2, F32>:
+  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32
+) -> Array<F32>:
   blk.w4(blk.w4(lin, gr, nch, u.add(zlin, 60), 16, tm), gr, nch, u.add(zlin, 124), 16, u.add(tm, 1))
 
 # index of the history write, which steps back 16 slots
@@ -704,108 +750,285 @@ def blk.hist(+zlin: U32, +ii: U32) -> U32:
 
 # same band at this time and the next, four lanes
 def blk.ws(
-  lin: List<&2, F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
-) -> List<&2, F32>:
-  f.set(f.set(f.set(f.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1),
+  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+) -> Array<F32>:
+  ln.set(ln.set(ln.set(ln.set(lin, at, blk.g(gr, nch, band, tm, False{})), u.add(at, 1),
     blk.g(gr, nch, band, tm, True{})), u.add(at, 2), blk.g(gr, nch, band, u.add(tm, 1), False{})),
     u.add(at, 3), blk.g(gr, nch, band, u.add(tm, 1), True{}))
 
 # current-slot writes for row ii
 def blk.i1(
-  lin: List<&2, F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
-) -> List<&2, F32>:
+  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+) -> Array<F32>:
   blk.ws(lin, gr, nch, u.add(zlin, u.mul(ii, 4)), u.sub(31, ii), tm)
 
 # next-slot and history writes for row ii
 def blk.i2(
-  lin: List<&2, F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
-) -> List<&2, F32>:
+  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+) -> Array<F32>:
   blk.w2(blk.w2(lin, gr, nch, u.add(u.add(zlin, u.mul(ii, 4)), 64), u.add(1, ii), u.add(tm, 1)), gr, nch,
     blk.hist(zlin, ii), u.add(1, ii), tm)
 
 # both writes for row ii
 def blk.i(
-  lin: List<&2, F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
-) -> List<&2, F32>:
+  lin: Array<F32>, +gr: List<&2, F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+) -> Array<F32>:
   blk.i2(blk.i1(lin, gr, nch, zlin, tm, ii), gr, nch, zlin, tm, ii)
 
 # (z+896) - z, times 29
-def sp.a1a(+lin: List<&2, F32>, +zz: U32) -> F32:
-  f.mul(f.sub(f.at(lin, u.add(zz, 896)), f.at(lin, zz)), Enc.f32.bits(1105723392))
+def sp.a1a3(g1: La, +v896: F32) -> La:
+  match g1:
+    case La{lin2, vz}:
+      La{lin2, f.mul(f.sub(v896, vz), Enc.f32.bits(1105723392))}
+
+def sp.a1a2(g0: La, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v896}:
+      sp.a1a3(ln.at(lin1, zz), v896)
+
+def sp.a1a(lin: Array<F32>, +zz: U32) -> La:
+  sp.a1a2(ln.at(lin, u.add(zz, 896)), zz)
 
 # slots 1 and 13, times 213
-def sp.a1b(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(acc, f.mul(f.add(f.at(lin, u.add(zz, 64)), f.at(lin, u.add(zz, 832))), Enc.f32.bits(1129644032)))
+def sp.a1b2(g1: La, +acc: F32, +v64: F32) -> La:
+  match g1:
+    case La{lin2, v832}:
+      La{lin2, f.add(acc, f.mul(f.add(v64, v832), Enc.f32.bits(1129644032)))}
+
+def sp.a1b1(g0: La, +acc: F32, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v64}:
+      sp.a1b2(ln.at(lin1, u.add(zz, 832)), acc, v64)
+
+def sp.a1b(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a1b1(ln.at(lin, u.add(zz, 64)), acc, zz)
 
 # slots 12 and 2, times 459
-def sp.a1c(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(acc, f.mul(f.sub(f.at(lin, u.add(zz, 768)), f.at(lin, u.add(zz, 128))), Enc.f32.bits(1139113984)))
+def sp.a1c2(g1: La, +acc: F32, +v768: F32) -> La:
+  match g1:
+    case La{lin2, v128}:
+      La{lin2, f.add(acc, f.mul(f.sub(v768, v128), Enc.f32.bits(1139113984)))}
+
+def sp.a1c1(g0: La, +acc: F32, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v768}:
+      sp.a1c2(ln.at(lin1, u.add(zz, 128)), acc, v768)
+
+def sp.a1c(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a1c1(ln.at(lin, u.add(zz, 768)), acc, zz)
 
 # slots 3 and 11, times 2037
-def sp.a1d(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(acc, f.mul(f.add(f.at(lin, u.add(zz, 192)), f.at(lin, u.add(zz, 704))), Enc.f32.bits(1157537792)))
+def sp.a1d2(g1: La, +acc: F32, +v192: F32) -> La:
+  match g1:
+    case La{lin2, v704}:
+      La{lin2, f.add(acc, f.mul(f.add(v192, v704), Enc.f32.bits(1157537792)))}
+
+def sp.a1d1(g0: La, +acc: F32, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v192}:
+      sp.a1d2(ln.at(lin1, u.add(zz, 704)), acc, v192)
+
+def sp.a1d(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a1d1(ln.at(lin, u.add(zz, 192)), acc, zz)
 
 # slots 10 and 4, times 5153
-def sp.a1e(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(acc, f.mul(f.sub(f.at(lin, u.add(zz, 640)), f.at(lin, u.add(zz, 256))), Enc.f32.bits(1168181248)))
+def sp.a1e2(g1: La, +acc: F32, +v640: F32) -> La:
+  match g1:
+    case La{lin2, v256}:
+      La{lin2, f.add(acc, f.mul(f.sub(v640, v256), Enc.f32.bits(1168181248)))}
+
+def sp.a1e1(g0: La, +acc: F32, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v640}:
+      sp.a1e2(ln.at(lin1, u.add(zz, 256)), acc, v640)
+
+def sp.a1e(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a1e1(ln.at(lin, u.add(zz, 640)), acc, zz)
 
 # slots 5 and 9, times 6574
-def sp.a1f(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(acc, f.mul(f.add(f.at(lin, u.add(zz, 320)), f.at(lin, u.add(zz, 576))), Enc.f32.bits(1171091456)))
+def sp.a1f2(g1: La, +acc: F32, +v320: F32) -> La:
+  match g1:
+    case La{lin2, v576}:
+      La{lin2, f.add(acc, f.mul(f.add(v320, v576), Enc.f32.bits(1171091456)))}
+
+def sp.a1f1(g0: La, +acc: F32, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v320}:
+      sp.a1f2(ln.at(lin1, u.add(zz, 576)), acc, v320)
+
+def sp.a1f(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a1f1(ln.at(lin, u.add(zz, 320)), acc, zz)
 
 # slots 8 and 6, times 37489, then slot 7 times 75038
-def sp.a1g(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(f.add(acc, f.mul(f.sub(f.at(lin, u.add(zz, 512)), f.at(lin, u.add(zz, 384))), Enc.f32.bits(1192390912))),
-    f.mul(f.at(lin, u.add(zz, 448)), Enc.f32.bits(1200787200)))
+def sp.a1g4(g2: La, +acc: F32, +v512: F32, +v384: F32) -> La:
+  match g2:
+    case La{lin3, v448}:
+      La{lin3,
+        f.add(f.add(acc, f.mul(f.sub(v512, v384), Enc.f32.bits(1192390912))),
+          f.mul(v448, Enc.f32.bits(1200787200)))}
+
+def sp.a1g3(g1: La, +acc: F32, +v512: F32, +zz: U32) -> La:
+  match g1:
+    case La{lin2, v384}:
+      sp.a1g4(ln.at(lin2, u.add(zz, 448)), acc, v512, v384)
+
+def sp.a1g2(g0: La, +acc: F32, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v512}:
+      sp.a1g3(ln.at(lin1, u.add(zz, 384)), acc, v512, zz)
+
+def sp.a1g(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a1g2(ln.at(lin, u.add(zz, 512)), acc, zz)
+
+def sp.a1go6(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin6, acc6}:
+      sp.a1g(acc6, lin6, zz)
+
+def sp.a1go5(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin5, acc5}:
+      sp.a1go6(sp.a1f(acc5, lin5, zz), zz)
+
+def sp.a1go4(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin4, acc4}:
+      sp.a1go5(sp.a1e(acc4, lin4, zz), zz)
+
+def sp.a1go3(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin3, acc3}:
+      sp.a1go4(sp.a1d(acc3, lin3, zz), zz)
+
+def sp.a1go2(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin2, acc2}:
+      sp.a1go3(sp.a1c(acc2, lin2, zz), zz)
+
+def sp.a1go1(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin1, acc1}:
+      sp.a1go2(sp.a1b(acc1, lin1, zz), zz)
 
 # first grouped window sum
-def sp.a1(+lin: List<&2, F32>, +zz: U32) -> F32:
-  sp.a1g(sp.a1f(sp.a1e(sp.a1d(sp.a1c(sp.a1b(sp.a1a(lin, zz), lin, zz), lin, zz), lin, zz), lin, zz),
-    lin, zz), lin, zz)
+def sp.a1(lin: Array<F32>, +zz: U32) -> La:
+  sp.a1go1(sp.a1a(lin, zz), zz)
 
 # taps 898, 770, 642, 514
-def sp.a2a(+lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(f.add(f.add(f.mul(f.at(lin, u.add(zz, 898)), Enc.f32.bits(1120927744)),
-    f.mul(f.at(lin, u.add(zz, 770)), Enc.f32.bits(1153687552))),
-    f.mul(f.at(lin, u.add(zz, 642)), Enc.f32.bits(1175976960))),
-    f.mul(f.at(lin, u.add(zz, 514)), Enc.f32.bits(1199182592)))
+def sp.a2a4(g3: La, +v898: F32, +v770: F32, +v642: F32) -> La:
+  match g3:
+    case La{lin4, v514}:
+      La{lin4,
+        f.add(f.add(f.add(f.mul(v898, Enc.f32.bits(1120927744)), f.mul(v770, Enc.f32.bits(1153687552))),
+          f.mul(v642, Enc.f32.bits(1175976960))), f.mul(v514, Enc.f32.bits(1199182592)))}
+
+def sp.a2a3(g2: La, +v898: F32, +v770: F32, +zz: U32) -> La:
+  match g2:
+    case La{lin3, v642}:
+      sp.a2a4(ln.at(lin3, u.add(zz, 514)), v898, v770, v642)
+
+def sp.a2a2(g1: La, +v898: F32, +zz: U32) -> La:
+  match g1:
+    case La{lin2, v770}:
+      sp.a2a3(ln.at(lin2, u.add(zz, 642)), v898, v770, zz)
+
+def sp.a2a1(g0: La, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v898}:
+      sp.a2a2(ln.at(lin1, u.add(zz, 770)), v898, zz)
+
+def sp.a2a(lin: Array<F32>, +zz: U32) -> La:
+  sp.a2a1(ln.at(lin, u.add(zz, 898)), zz)
 
 # taps 386 and 258
-def sp.a2b(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(f.add(acc, f.mul(f.at(lin, u.add(zz, 386)), Enc.f32.bits(3323714560))),
-    f.mul(f.at(lin, u.add(zz, 258)), Enc.f32.bits(3258187776)))
+def sp.a2b2(g1: La, +acc: F32, +v386: F32) -> La:
+  match g1:
+    case La{lin2, v258}:
+      La{lin2, f.add(f.add(acc, f.mul(v386, Enc.f32.bits(3323714560))), f.mul(v258, Enc.f32.bits(3258187776)))}
+
+def sp.a2b1(g0: La, +acc: F32, +zz: U32) -> La:
+  match g0:
+    case La{lin1, v386}:
+      sp.a2b2(ln.at(lin1, u.add(zz, 258)), acc, v386)
+
+def sp.a2b(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a2b1(ln.at(lin, u.add(zz, 386)), acc, zz)
 
 # tap 130
-def sp.a2c(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(acc, f.mul(f.at(lin, u.add(zz, 130)), Enc.f32.bits(1125253120)))
+def sp.a2c1(g: La, +acc: F32) -> La:
+  match g:
+    case La{lin1, v130}:
+      La{lin1, f.add(acc, f.mul(v130, Enc.f32.bits(1125253120)))}
+
+def sp.a2c(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a2c1(ln.at(lin, u.add(zz, 130)), acc)
 
 # tap 2
-def sp.a2d(+acc: F32, +lin: List<&2, F32>, +zz: U32) -> F32:
-  f.add(acc, f.mul(f.at(lin, u.add(zz, 2)), Enc.f32.bits(3231711232)))
+def sp.a2d1(g: La, +acc: F32) -> La:
+  match g:
+    case La{lin1, v2}:
+      La{lin1, f.add(acc, f.mul(v2, Enc.f32.bits(3231711232)))}
+
+def sp.a2d(+acc: F32, lin: Array<F32>, +zz: U32) -> La:
+  sp.a2d1(ln.at(lin, u.add(zz, 2)), acc)
+
+def sp.a2go3(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin3, acc3}:
+      sp.a2d(acc3, lin3, zz)
+
+def sp.a2go2(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin2, acc2}:
+      sp.a2go3(sp.a2c(acc2, lin2, zz), zz)
+
+def sp.a2go1(g: La, +zz: U32) -> La:
+  match g:
+    case La{lin1, acc1}:
+      sp.a2go2(sp.a2b(acc1, lin1, zz), zz)
 
 # second window sum, eight weighted taps
-def sp.a2(+lin: List<&2, F32>, +zz: U32) -> F32:
-  sp.a2d(sp.a2c(sp.a2b(sp.a2a(lin, zz), lin, zz), lin, zz), lin, zz)
+def sp.a2(lin: Array<F32>, +zz: U32) -> La:
+  sp.a2go1(sp.a2a(lin, zz), zz)
+
+# PCM and delay line while pairing synth samples
+type Pp is Type:
+  Pp{pcm: List<&2, F32>, lin: Array<F32>}
 
 # one synth pair: two scaled samples
-def sp.pair(pcm: List<&2, F32>, +lin: List<&2, F32>, +pcmi: U32, +nch: U32, +zz: U32) -> List<&2, F32>:
-  f.set(f.set(pcm, pcmi, mac.sc(sp.a1(lin, zz))), u.add(pcmi, u.mul(16, nch)), mac.sc(sp.a2(lin, zz)))
+def sp.pair2(g2: La, pcm: List<&2, F32>, +pcmi: U32, +nch: U32) -> Pp:
+  match g2:
+    case La{lin2, v2}:
+      Pp{f.set(pcm, u.add(pcmi, u.mul(16, nch)), mac.sc(v2)), lin2}
+
+def sp.pair1(g1: La, pcm: List<&2, F32>, +pcmi: U32, +nch: U32, +zz: U32) -> Pp:
+  match g1:
+    case La{lin1, v1}:
+      sp.pair2(sp.a2(lin1, zz), f.set(pcm, pcmi, mac.sc(v1)), pcmi, nch)
+
+def sp.pair(st: Pp, +pcmi: U32, +nch: U32, +zz: U32) -> Pp:
+  match st:
+    case Pp{pcm, lin}:
+      sp.pair1(sp.a1(lin, zz), pcm, pcmi, nch, zz)
 
 # four synth pairs that open a block
-def blk.pairs(
-  pcm: List<&2, F32>, +lin: List<&2, F32>, +nch: U32, +pcmi: U32, +z0: U32
-) -> List<&2, F32>:
-  sp.pair(sp.pair(sp.pair(sp.pair(pcm, lin, u.add(pcmi, u.sub(nch, 1)), nch, u.add(z0, 1)), lin,
-    u.add(u.add(pcmi, u.mul(32, nch)), u.sub(nch, 1)), nch, u.add(z0, 65)), lin, pcmi, nch, z0), lin,
-    u.add(pcmi, u.mul(32, nch)), nch, u.add(z0, 64))
+def blk.pairs(st: Pp, +nch: U32, +pcmi: U32, +z0: U32) -> Pp:
+  sp.pair(sp.pair(sp.pair(sp.pair(st, u.add(pcmi, u.sub(nch, 1)), nch, u.add(z0, 1)), u.add(u.add(pcmi,
+    u.mul(32, nch)), u.sub(nch, 1)), nch, u.add(z0, 65)), pcmi, nch, z0), u.add(pcmi, u.mul(32, nch)), nch,
+    u.add(z0, 64))
 
 # delay line and the PCM written so far
-type Sb is Data:
-  Sb{lin: List<&2, F32>, pcm: List<&2, F32>}
+type Sb is Type:
+  Sb{lin: Array<F32>, pcm: List<&2, F32>}
+
+def blk.armed1(got: Pp) -> Sb:
+  match got:
+    case Pp{pcm2, lin2}:
+      Sb{lin2, pcm2}
 
 # pairs read the delay line the preamble just wrote
-def blk.armed(+lin: List<&2, F32>, pcm: List<&2, F32>, +nch: U32, +tm: U32) -> Sb:
-  Sb{lin, blk.pairs(pcm, lin, nch, u.mul(u.mul(32, nch), tm), u.add(u.mul(tm, 64), 60))}
+def blk.armed(lin: Array<F32>, pcm: List<&2, F32>, +nch: U32, +tm: U32) -> Sb:
+  blk.armed1(blk.pairs(Pp{pcm, lin}, nch, u.mul(u.mul(32, nch), tm), u.add(u.mul(tm, 64), 60)))
 
 # open a block: preamble, then the four pairs
 def blk.arm(st: Sb, +gr: List<&2, F32>, +nch: U32, +tm: U32) -> Sb:
@@ -813,12 +1036,16 @@ def blk.arm(st: Sb, +gr: List<&2, F32>, +nch: U32, +tm: U32) -> Sb:
     case Sb{lin, pcm}:
       blk.armed(blk.pre(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm), pcm, nch, tm)
 
+def blk.row1(got: Mk, pcm: List<&2, F32>, +nch: U32, +tm: U32, +ii: U32) -> Sb:
+  match got:
+    case Mk{st, lin2}:
+      Sb{lin2, mac.put(pcm, st, nch, u.mul(u.mul(32, nch), tm), ii)}
+
 # window the row just written
 def blk.row(
-  +lin: List<&2, F32>, pcm: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
+  lin: Array<F32>, pcm: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
 ) -> Sb:
-  Sb{lin, mac.put(pcm, mac.k(8n, mac.z(), lin, syn, u.add(u.mul(tm, 64), 960), ii, 0), nch,
-    u.mul(u.mul(32, nch), tm), ii)}
+  blk.row1(mac.k(8n, Mk{mac.z(), lin}, syn, u.add(u.mul(tm, 64), 960), ii, 0), pcm, nch, tm, ii)
 
 # one row of the block, from i = 14 down to 0
 def blk.step(st: Sb, +gr: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32) -> Sb:
@@ -849,31 +1076,35 @@ def blk.go(hop: Nat, st: Sb, +gr: List<&2, F32>, +nch: U32, +syn: List<&2, F32>,
       blk.go(p, blk.one(st, gr, nch, syn, tm), gr, nch, syn, u.add(tm, 2))
 
 # mono keeps the odd delay-line slots
-def qmf.mono(hop: Nat, dst: List<&2, F32>, +lin: List<&2, F32>, +ii: U32) -> List<&2, F32>:
-  match hop:
-    case 0n:
-      dst
-    case 1n+p:
-      qmf.mono(p, f.set(dst, ii, f.at(lin, u.add(1152, ii))), lin, u.add(ii, 2))
+def qmf.mono(hop: Nat, dst: List<&2, F32>, got: La, +ii: U32) -> List<&2, F32>:
+  match hop got:
+    case 0n La{lin, _v}:
+      match lin:
+        case _lin:
+          dst
+    case 1n+p La{lin1, v}:
+      qmf.mono(p, f.set(dst, ii, v), ln.at(lin1, u.add(1152, u.add(ii, 2))), u.add(ii, 2))
 
 # stereo copies the whole tail
-def qmf.copy(hop: Nat, dst: List<&2, F32>, +lin: List<&2, F32>, +ii: U32) -> List<&2, F32>:
-  match hop:
-    case 0n:
-      dst
-    case 1n+p:
-      qmf.copy(p, f.set(dst, ii, f.at(lin, u.add(1152, ii))), lin, u.add(ii, 1))
+def qmf.copy(hop: Nat, dst: List<&2, F32>, got: La, +ii: U32) -> List<&2, F32>:
+  match hop got:
+    case 0n La{lin, _v}:
+      match lin:
+        case _lin:
+          dst
+    case 1n+p La{lin1, v}:
+      qmf.copy(p, f.set(dst, ii, v), ln.at(lin1, u.add(1152, u.add(ii, 1))), u.add(ii, 1))
 
 # mono or stereo tail
-def qmf.pick(mono: Bool, qmf: List<&2, F32>, +lin: List<&2, F32>) -> List<&2, F32>:
+def qmf.pick(mono: Bool, qmf: List<&2, F32>, lin: Array<F32>) -> List<&2, F32>:
   match mono:
     case True{}:
-      qmf.mono(480n, qmf, lin, 0)
+      qmf.mono(480n, qmf, ln.at(lin, 1152), 0)
     case False{}:
-      qmf.copy(960n, qmf, lin, 0)
+      qmf.copy(960n, qmf, ln.at(lin, 1152), 0)
 
 # save the 15-block tail. mono copies only even indices.
-def qmf.save(+lin: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> List<&2, F32>:
+def qmf.save(lin: Array<F32>, +qmf: List<&2, F32>, +nch: U32) -> List<&2, F32>:
   qmf.pick(U32.is_eq(nch, 1), qmf, lin)
 
 # PCM, the overlap to carry, and the polyphase delay
@@ -932,9 +1163,9 @@ def sy.dct(mono: Bool, +buf: List<&2, F32>, +sec: List<&2, F32>) -> List<&2, F32
       List.append(&2, F32, dc.run(18n, ls.slice(buf, 0, 576n), sec, 0),
         dc.run(18n, ls.slice(buf, 576, 576n), sec, 0))
 
-# delay line: the carried tail, then 1152 zeros
-def sy.lin(+qmf: List<&2, F32>) -> List<&2, F32>:
-  List.append(&2, F32, qmf, List.replicate(F32, U32.to_nat(1152), 0.0))
+# delay line: the carried tail, then zeros (4096-slot Array starts at 0.0)
+def sy.lin(+qmf: List<&2, F32>) -> Array<F32>:
+  ln.fill(qmf, Array.new(F32, 12n, 0.0), 0)
 
 # empty PCM for one granule
 def sy.pcm(+nch: U32) -> List<&2, F32>:
@@ -943,7 +1174,7 @@ def sy.pcm(+nch: U32) -> List<&2, F32>:
 # run the polyphase and keep the overlap from the IMDCT
 def syn.out(st: Sb, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
   match st:
-    case Sb{+lin, pcm}:
+    case Sb{lin, pcm}:
       Pc{pcm, ov, qmf.save(lin, qmf, nch)}
 
 # DCT-II then nine polyphase blocks
