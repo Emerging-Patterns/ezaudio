@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.6...v0.2.7) (2026-09-22)
+
+
+### Performance Improvements
+
+* keep the MP3 IMDCT spectrum in an Array ([#27](https://github.com/Emerging-Patterns/ezaudio/issues/27)) ([18abe45](https://github.com/Emerging-Patterns/ezaudio/commit/18abe45c21e4f0eca33230c3dca26ffd9602209d))
+
 ## [0.2.6](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.5...v0.2.6) (2026-09-22)
 
 
