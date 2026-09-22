@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.9](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.8...v0.2.9) (2026-09-22)
+
+
+### Performance Improvements
+
+* keep the MP3 DCT rows in an Array ([#31](https://github.com/Emerging-Patterns/ezaudio/issues/31)) ([6520d5d](https://github.com/Emerging-Patterns/ezaudio/commit/6520d5dec04a3deee514fc92e5a6477b14ad64bc))
+
 ## [0.2.8](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.7...v0.2.8) (2026-09-22)
 
 
