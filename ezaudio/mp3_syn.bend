@@ -324,89 +324,7 @@ def im.band(+gg: List<&2, F32>, +ov: List<&2, F32>, +tw: List<&2, F32>, +win: Li
   wn.go(9n, Wn{List.replicate(F32, 18n, 0.0), List.replicate(F32, 9n, 0.0)}, d9.run(cs.co(gg)),
     d9.neg(d9.run(cs.si(gg))), ov, tw, win, 0)
 
-# 576 lines and 288 overlap samples
-type Im is Data:
-  Im{buf: List<&2, F32>, ov: List<&2, F32>}
-
-# write one band back into the spectrum and the overlap
-def im.store(+buf: List<&2, F32>, +ov: List<&2, F32>, ww: Wn, +jj: U32) -> Im:
-  match ww:
-    case Wn{out, nov}:
-      Im{ls.poke(18n, buf, out, u.mul(jj, 18)), ls.poke(9n, ov, nov, u.mul(jj, 9))}
-
-# IMDCT-36 of band jj
-def im.one(st: Im, +tw: List<&2, F32>, +win: List<&2, F32>, +jj: U32) -> Im:
-  match st:
-    case Im{+buf, +ov}:
-      im.store(buf, ov, im.band(ls.slice(buf, u.mul(jj, 18), 18n), ls.slice(ov, u.mul(jj, 9), 9n), tw, win), jj)
-
-# IMDCT-36 over 32 bands
-def im.go(hop: Nat, st: Im, +tw: List<&2, F32>, +win: List<&2, F32>, +jj: U32) -> Im:
-  match hop:
-    case 0n:
-      st
-    case 1n+p:
-      im.go(p, im.one(st, tw, win, jj), tw, win, u.add(jj, 1))
-
-# butterfly of one aliasing pair. c0 and c1 are the two cosine rows.
-def aa.up(
-  +xs: List<&2, F32>, +up: F32, +dp: F32, +c0: F32, +c1: F32, +bb: U32, +ii: U32
-) -> List<&2, F32>:
-  f.set(f.set(xs, u.add(u.mul(u.add(bb, 1), 18), ii), f.sub(f.mul(c0, up), f.mul(c1, dp))),
-    u.add(u.mul(bb, 18), u.sub(17, ii)), f.add(f.mul(c1, up), f.mul(c0, dp)))
-
-# one butterfly at index ii of band bb
-def aa.one(+xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32) -> List<&2, F32>:
-  aa.up(xs, f.at(xs, u.add(u.mul(u.add(bb, 1), 18), ii)), f.at(xs, u.add(u.mul(bb, 18), u.sub(17, ii))),
-    f.at(aa, ii), f.at(aa, u.add(ii, 8)), bb, ii)
-
-# eight butterflies between band bb and the next
-def aa.i(hop: Nat, xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32) -> List<&2, F32>:
-  match hop:
-    case 0n:
-      xs
-    case 1n+p:
-      aa.i(p, aa.one(xs, aa, bb, ii), aa, bb, u.add(ii, 1))
-
-# antialias from low bands toward high bands
-def aa.b(hop: Nat, xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32) -> List<&2, F32>:
-  match hop:
-    case 0n:
-      xs
-    case 1n+p:
-      aa.b(p, aa.i(8n, xs, aa, bb, 0), aa, u.add(bb, 1))
-
-# 31 long-block aliasing pairs
-def aa.run(+xs: List<&2, F32>, +aa: List<&2, F32>) -> List<&2, F32>:
-  aa.b(31n, xs, aa, 0)
-
-# negate one odd sample of an odd band
-def sg.i(hop: Nat, +xs: List<&2, F32>, +base: U32, +ii: U32) -> List<&2, F32>:
-  match hop:
-    case 0n:
-      xs
-    case 1n+p:
-      sg.i(p, f.set(xs, u.add(base, ii), F32.neg(f.at(xs, u.add(base, ii)))), base, u.add(ii, 2))
-
-# odd samples of 16 odd bands, starting at sample 18
-def sg.b(hop: Nat, xs: List<&2, F32>, +base: U32) -> List<&2, F32>:
-  match hop:
-    case 0n:
-      xs
-    case 1n+p:
-      sg.b(p, sg.i(9n, xs, base, 1), u.add(base, 36))
-
-# frequency inversion after the IMDCT
-def im.sign(st: Im) -> Im:
-  match st:
-    case Im{buf, ov}:
-      Im{sg.b(16n, buf, 18), ov}
-
-# four DCT-II column results
-type Q4 is Data:
-  Q4{a0: F32, a1: F32, a2: F32, a3: F32}
-
-# one F32 read from the DCT spectrum Array
+# one F32 read from the IMDCT/DCT spectrum Array
 type Dx is Type:
   Dx{acc: Array<F32>, +v: F32}
 
@@ -416,6 +334,162 @@ def dx.of(got: Array<F32> & F32) -> Dx:
 
 def dx.at(acc: Array<F32>, +ii: U32) -> Dx:
   dx.of(Array.get(F32, acc, ii))
+
+# spectrum Array beside the samples just read
+type Il is Type:
+  Il{acc: Array<F32>, xs: List<&2, F32>}
+
+# pull one sample; hop is remaining after this read
+def ix.pull(hop: Nat, got: Dx, +ii: U32, ys: List<&2, F32>) -> Il:
+  match hop got:
+    case 0n Dx{acc, +cur}:
+      Il{acc, List.reverse(&2, F32, cur <> ys)}
+    case 1n+p Dx{acc, +cur}:
+      ix.pull(p, dx.at(acc, u.add(ii, 1)), u.add(ii, 1), cur <> ys)
+
+# hop+1 samples starting at `at`. The spectrum Array is handed back.
+def ix.take(acc: Array<F32>, +at: U32, hop: Nat) -> Il:
+  ix.pull(hop, dx.at(acc, at), at, [])
+
+# write a short list into the spectrum Array
+def ix.poke(hop: Nat, acc: Array<F32>, src: List<&2, F32>, +at: U32) -> Array<F32>:
+  match hop src:
+    case 0n _:
+      acc
+    case _ Nil{}:
+      acc
+    case 1n+p +hd <> tl:
+      ix.poke(p, Array.set(F32, acc, at, hd), tl, u.add(at, 1))
+
+# 576 lines in the spectrum Array, and 288 overlap samples
+type Im is Type:
+  Im{buf: Array<F32>, ov: List<&2, F32>}
+
+# write one band back into the spectrum Array and the overlap
+def im.store(buf: Array<F32>, +ov: List<&2, F32>, ww: Wn, +jj: U32, +base: U32) -> Im:
+  match ww:
+    case Wn{out, nov}:
+      Im{ix.poke(18n, buf, out, u.add(base, u.mul(jj, 18))), ls.poke(9n, ov, nov, u.mul(jj, 9))}
+
+# band samples in hand; window them and store
+def im.got(
+  got: Il, +ov: List<&2, F32>, +tw: List<&2, F32>, +win: List<&2, F32>, +jj: U32, +base: U32
+) -> Im:
+  match got:
+    case Il{buf, gg}:
+      im.store(buf, ov, im.band(gg, ls.slice(ov, u.mul(jj, 9), 9n), tw, win), jj, base)
+
+# IMDCT-36 of band jj. Each of the 18 samples is an Array.get.
+def im.one(st: Im, +tw: List<&2, F32>, +win: List<&2, F32>, +jj: U32, +base: U32) -> Im:
+  match st:
+    case Im{buf, +ov}:
+      im.got(ix.take(buf, u.add(base, u.mul(jj, 18)), 17n), ov, tw, win, jj, base)
+
+# IMDCT-36 over 32 bands. base is the channel offset in the spectrum Array.
+def im.go(hop: Nat, st: Im, +tw: List<&2, F32>, +win: List<&2, F32>, +jj: U32, +base: U32) -> Im:
+  match hop:
+    case 0n:
+      st
+    case 1n+p:
+      im.go(p, im.one(st, tw, win, jj, base), tw, win, u.add(jj, 1), base)
+
+# high index of one aliasing pair
+def aa.ixh(+base: U32, +bb: U32, +ii: U32) -> U32:
+  u.add(base, u.add(u.mul(u.add(bb, 1), 18), ii))
+
+# low index of one aliasing pair
+def aa.ixl(+base: U32, +bb: U32, +ii: U32) -> U32:
+  u.add(base, u.add(u.mul(bb, 18), u.sub(17, ii)))
+
+# spectrum Array beside the two aliasing samples
+type Ia is Type:
+  Ia{acc: Array<F32>, +up: F32, +dp: F32}
+
+# low sample, then both indices are in hand
+def aa.lo(got: Dx, +up: F32) -> Ia:
+  match got:
+    case Dx{acc, dp}:
+      Ia{acc, up, dp}
+
+# high sample in hand; read the low sample next
+def aa.rd1(got: Dx, +lo: U32) -> Ia:
+  match got:
+    case Dx{acc, up}:
+      aa.lo(dx.at(acc, lo), up)
+
+# read both samples of one aliasing pair. Each read is an Array.get.
+def aa.rd(acc: Array<F32>, +hi: U32, +lo: U32) -> Ia:
+  aa.rd1(dx.at(acc, hi), lo)
+
+# butterfly of one aliasing pair. c0 and c1 are the two cosine rows.
+def aa.wr(
+  acc: Array<F32>, +up: F32, +dp: F32, +c0: F32, +c1: F32, +hi: U32, +lo: U32
+) -> Array<F32>:
+  Array.set(F32, Array.set(F32, acc, hi, f.sub(f.mul(c0, up), f.mul(c1, dp))), lo,
+    f.add(f.mul(c1, up), f.mul(c0, dp)))
+
+# write the pair once both samples have been read
+def aa.use(got: Ia, +c0: F32, +c1: F32, +hi: U32, +lo: U32) -> Array<F32>:
+  match got:
+    case Ia{acc, up, dp}:
+      aa.wr(acc, up, dp, c0, c1, hi, lo)
+
+# one butterfly at index ii of band bb
+def aa.one(acc: Array<F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32, +base: U32) -> Array<F32>:
+  aa.use(aa.rd(acc, aa.ixh(base, bb, ii), aa.ixl(base, bb, ii)), f.at(aa, ii), f.at(aa, u.add(ii, 8)),
+    aa.ixh(base, bb, ii), aa.ixl(base, bb, ii))
+
+# eight butterflies between band bb and the next
+def aa.i(hop: Nat, acc: Array<F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32, +base: U32) -> Array<F32>:
+  match hop:
+    case 0n:
+      acc
+    case 1n+p:
+      aa.i(p, aa.one(acc, aa, bb, ii, base), aa, bb, u.add(ii, 1), base)
+
+# antialias from low bands toward high bands
+def aa.b(hop: Nat, acc: Array<F32>, +aa: List<&2, F32>, +bb: U32, +base: U32) -> Array<F32>:
+  match hop:
+    case 0n:
+      acc
+    case 1n+p:
+      aa.b(p, aa.i(8n, acc, aa, bb, 0, base), aa, u.add(bb, 1), base)
+
+# 31 long-block aliasing pairs. base is the channel offset in the spectrum Array.
+def aa.run(acc: Array<F32>, +aa: List<&2, F32>, +base: U32) -> Array<F32>:
+  aa.b(31n, acc, aa, 0, base)
+
+# negate the sample just read
+def sg.neg(got: Dx, +at: U32) -> Array<F32>:
+  match got:
+    case Dx{acc, v}:
+      Array.set(F32, acc, at, F32.neg(v))
+
+# negate one odd sample of an odd band
+def sg.i(hop: Nat, acc: Array<F32>, +base: U32, +ii: U32) -> Array<F32>:
+  match hop:
+    case 0n:
+      acc
+    case 1n+p:
+      sg.i(p, sg.neg(dx.at(acc, u.add(base, ii)), u.add(base, ii)), base, u.add(ii, 2))
+
+# odd samples of 16 odd bands, starting at sample 18
+def sg.b(hop: Nat, acc: Array<F32>, +base: U32) -> Array<F32>:
+  match hop:
+    case 0n:
+      acc
+    case 1n+p:
+      sg.b(p, sg.i(9n, acc, base, 1), u.add(base, 36))
+
+# frequency inversion after the IMDCT. base is the channel offset.
+def im.sign(st: Im, +base: U32) -> Im:
+  match st:
+    case Im{buf, ov}:
+      Im{sg.b(16n, buf, u.add(base, 18)), ov}
+
+# four DCT-II column results
+type Q4 is Data:
+  Q4{a0: F32, a1: F32, a2: F32, a3: F32}
 
 # column sample i of the 32-band vector
 def dc.x0(acc: Array<F32>, +kk: U32, +ii: U32) -> Dx:
@@ -1344,38 +1418,40 @@ def syn.zqmf() -> List<&2, F32>:
 
 # antialias, IMDCT, and the sign flip for one channel
 def ch.prep(
-  +spec: List<&2, F32>, +ov: List<&2, F32>, +aa: List<&2, F32>, +tw: List<&2, F32>, +win: List<&2, F32>
+  acc: Array<F32>, +ov: List<&2, F32>, +aa: List<&2, F32>, +tw: List<&2, F32>, +win: List<&2, F32>,
+  +base: U32
 ) -> Im:
-  im.sign(im.go(32n, Im{aa.run(spec, aa), ov}, tw, win, 0))
+  im.sign(im.go(32n, Im{aa.run(acc, aa, base), ov}, tw, win, 0, base), base)
 
-# append the second channel
-def syn.st2(+ba: List<&2, F32>, +oa: List<&2, F32>, bb: Im) -> Im:
+# append the second channel's overlap. The spectrum Array already holds both.
+def syn.st2(+ova: List<&2, F32>, bb: Im) -> Im:
   match bb:
-    case Im{buf, ov}:
-      Im{List.append(&2, F32, ba, buf), List.append(&2, F32, oa, ov)}
+    case Im{buf, ovb}:
+      Im{buf, List.append(&2, F32, ova, ovb)}
 
-# join two channel states
-def syn.st(aa: Im, bb: Im) -> Im:
+# join two channel states. The right channel starts at bin 576.
+def syn.st(
+  aa: Im, +ovb: List<&2, F32>, +cs: List<&2, F32>, +tw: List<&2, F32>, +win: List<&2, F32>
+) -> Im:
   match aa:
-    case Im{+ba, +oa}:
-      syn.st2(ba, oa, bb)
+    case Im{buf, ova}:
+      syn.st2(ova, ch.prep(buf, ovb, cs, tw, win, 576))
 
 # prepare one or two channels
 def syn.ch(
-  mono: Bool, +spec: List<&2, F32>, +ov: List<&2, F32>, +aa: List<&2, F32>, +tw: List<&2, F32>,
+  mono: Bool, acc: Array<F32>, +ov: List<&2, F32>, +aa: List<&2, F32>, +tw: List<&2, F32>,
   +win: List<&2, F32>
 ) -> Im:
   match mono:
     case True{}:
-      ch.prep(spec, ov, aa, tw, win)
+      ch.prep(acc, ov, aa, tw, win, 0)
     case False{}:
-      syn.st(ch.prep(ls.slice(spec, 0, 576n), ls.slice(ov, 0, 288n), aa, tw, win),
-        ch.prep(ls.slice(spec, 576, 576n), ls.slice(ov, 288, 288n), aa, tw, win))
+      syn.st(ch.prep(acc, ls.slice(ov, 0, 288n), aa, tw, win, 0), ls.slice(ov, 288, 288n), aa, tw, win)
 
-# tables shared by a granule
+# tables shared by a granule. 2048 slots cover mono 576 and stereo 1152.
 def syn.ready(+spec: List<&2, F32>, +ov: List<&2, F32>, +nch: U32) -> Im:
-  syn.ch(U32.is_eq(nch, 1), spec, ov, Enc.f.of(Tab.tab.aa()), Enc.f.of(Tab.tab.tw()),
-    Enc.f.of(Tab.tab.winl()))
+  syn.ch(U32.is_eq(nch, 1), ln.fill(spec, Array.new(F32, 11n, 0.0), 0), ov,
+    Enc.f.of(Tab.tab.aa()), Enc.f.of(Tab.tab.tw()), Enc.f.of(Tab.tab.winl()))
 
 # second channel starts at bin 576
 def sy.dct2(mono: Bool, acc: Array<F32>, +sec: List<&2, F32>) -> Array<F32>:
@@ -1385,9 +1461,9 @@ def sy.dct2(mono: Bool, acc: Array<F32>, +sec: List<&2, F32>) -> Array<F32>:
     case False{}:
       dc.run(18n, dc.run(18n, acc, sec, 0), sec, 576)
 
-# DCT-II of each channel. 2048 slots cover mono 576 and stereo 1152.
-def sy.dct(mono: Bool, +buf: List<&2, F32>, +sec: List<&2, F32>) -> Array<F32>:
-  sy.dct2(mono, ln.fill(buf, Array.new(F32, 11n, 0.0), 0), sec)
+# DCT-II of each channel. The spectrum Array is the one IMDCT just wrote.
+def sy.dct(mono: Bool, acc: Array<F32>, +sec: List<&2, F32>) -> Array<F32>:
+  sy.dct2(mono, acc, sec)
 
 # delay line: the carried tail, then zeros (4096-slot Array starts at 0.0)
 def sy.lin(+qmf: List<&2, F32>) -> Array<F32>:
@@ -1418,7 +1494,7 @@ def syn.out(got: Bg, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
           syn.drop(gr, st, ov, qmf, nch)
 
 # DCT-II then nine polyphase blocks. The spectrum Array is what the polyphase reads.
-def syn.pcm(+buf: List<&2, F32>, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
+def syn.pcm(buf: Array<F32>, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
   syn.out(blk.go(9n, Bg{Sb{sy.lin(qmf), sy.pcm()}, sy.dct(U32.is_eq(nch, 1), buf,
     Enc.f.of(Tab.tab.sec())), sw.tab()}, nch, 0), ov, qmf, nch)
 
@@ -1434,7 +1510,8 @@ def syn.gran(+spec: List<&2, F32>, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch
 
 # IMDCT only, 32 bands, no antialias. Used to check the unit impulse.
 def syn.im(+buf: List<&2, F32>, +ov: List<&2, F32>) -> Im:
-  im.go(32n, Im{buf, ov}, Enc.f.of(Tab.tab.tw()), Enc.f.of(Tab.tab.winl()), 0)
+  im.go(32n, Im{ln.fill(buf, Array.new(F32, 11n, 0.0), 0), ov}, Enc.f.of(Tab.tab.tw()),
+    Enc.f.of(Tab.tab.winl()), 0, 0)
 
 # one PCM sample of a granule, as a binary32 word
 def syn.nth(st: Pc, +ii: U32) -> U32:
@@ -1442,11 +1519,19 @@ def syn.nth(st: Pc, +ii: U32) -> U32:
     case Pc{pcm, _ov, _qmf}:
       Enc.f32.word(f.at(pcm, ii))
 
+# drop the spectrum Array once sample 0 has been read
+def syn.word1(got: Dx) -> U32:
+  match got:
+    case Dx{acc, v}:
+      match acc:
+        case _acc:
+          Enc.f32.word(v)
+
 # first sample of an IMDCT buffer, as a binary32 word
 def syn.word(st: Im) -> U32:
   match st:
     case Im{buf, _ov}:
-      Enc.f32.word(f.at(buf, 0))
+      syn.word1(dx.at(buf, 0))
 
 # PCM word ii of one granule whose spectrum is a unit impulse at bin 0.
 def syn.probe(+ii: U32) -> U32:
