@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.3...v0.2.4) (2026-09-22)
+
+
+### Performance Improvements
+
+* keep the MP3 granule spectrum in an Array ([#21](https://github.com/Emerging-Patterns/ezaudio/issues/21)) ([d109db1](https://github.com/Emerging-Patterns/ezaudio/commit/d109db1f0bc1ceb877168e4591ecc828a0921c0b))
+
 ## [0.2.3](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.2...v0.2.3) (2026-09-22)
 
 
