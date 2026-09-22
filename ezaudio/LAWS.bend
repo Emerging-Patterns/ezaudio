@@ -30,12 +30,6 @@ def bytes.of(got: Maybe<&2, List<&2, U32>>) -> List<&2, U32>:
     case Some{xs}:
       xs
 
-def head.of(got: Maybe<&2, List<&2, U32>>) -> List<&2, U32>:
-  List.take(&2, U32, bytes.of(got), 4n)
-
-def len.of(got: Maybe<&2, List<&2, U32>>) -> U32:
-  U32.from_nat(List.length(&2, U32, bytes.of(got)))
-
 def pcm.z(+n: U32) -> List<&2, U32>:
   List.replicate(U32, U32.to_nat(n), 0)
 
@@ -58,6 +52,15 @@ def gran.1(xs: List<&2, U32>) -> Dec.Gd:
 
 def pair.bytes() -> List<&2, U32>:
   bytes.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [1])))
+
+# One Enc.enc.run for the Huffman-pair fixture: header, length, side info, decode.
+# Separate laws each re-normalized pair.bytes() and dominated `ez test` wall time.
+def pair.probe() -> List<&2, U32> & U32 & U32 & U32 & U32 & U32 & U32 & U32 & Maybe<&2, Au.Clip>:
+  +xs = pair.bytes()
+  +g0 = gran.0(xs)
+  +g1 = gran.1(xs)
+  (List.take(&2, U32, xs, 4n), U32.from_nat(List.length(&2, U32, xs)), gd.big(g0),
+    gd.gain(g0), gd.part(g0), gd.block(g0), gd.tab(g0), gd.big(g1), Au.decode_mp3(xs))
 
 def gd.big(g: Dec.Gd) -> U32:
   match g:
@@ -246,48 +249,6 @@ law mp3_crc:
 law mp3_short:
   {Au.decode_mp3(fix.hdr()) == None{} : Maybe<&2, Au.Clip>}
 
-# LAW: ISO/IEC 11172-3 — silence at 44100 Hz mono opens FF FB E0 C4
-law mp3_silence_head:
-  {head.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [0]))) == [255, 251, 224, 196] : List<&2, U32>}
-
-# LAW: ISO/IEC 11172-3 — that frame is 1152 * 320 * 125 / 44100 bytes
-law mp3_silence_len:
-  {len.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [0]))) == 1044 : U32}
-
-# LAW: ISO/IEC 11172-3 — decoding that frame is 1152 zero binary32 samples
-law mp3_silence_pcm:
-  {Au.decode_mp3(bytes.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [0]))))
-    == Some{Au.clip(44100, 1, Au.f32(), pcm.z(1152))} : Maybe<&2, Au.Clip>}
-
-# LAW: ISO/IEC 11172-3 — stereo silence opens FF FB E0 04
-law mp3_stereo_head:
-  {head.of(Au.encode_mp3(Au.clip(44100, 2, Au.s16(), [0, 0]))) == [255, 251, 224, 4] : List<&2, U32>}
-
-# LAW: ISO/IEC 11172-3 — decoding that frame is 1152 zero samples on each channel
-law mp3_stereo_pcm:
-  {Au.decode_mp3(bytes.of(Au.encode_mp3(Au.clip(44100, 2, Au.s16(), [0, 0]))))
-    == Some{Au.clip(44100, 2, Au.f32(), pcm.z(2304))} : Maybe<&2, Au.Clip>}
-
-# LAW: ISO/IEC 11172-3 — 48000 Hz sets the sampling-frequency index to 1
-law mp3_hz48:
-  {head.of(Au.encode_mp3(Au.clip(48000, 1, Au.s16(), [0]))) == [255, 251, 228, 196] : List<&2, U32>}
-
-# LAW: ISO/IEC 11172-3 — a 48000 Hz silent frame is 960 bytes
-law mp3_len48:
-  {len.of(Au.encode_mp3(Au.clip(48000, 1, Au.s16(), [0]))) == 960 : U32}
-
-# LAW: ISO/IEC 11172-3 — 32000 Hz sets the sampling-frequency index to 2
-law mp3_hz32:
-  {head.of(Au.encode_mp3(Au.clip(32000, 1, Au.s16(), [0]))) == [255, 251, 232, 196] : List<&2, U32>}
-
-# LAW: ISO/IEC 11172-3 — a 32000 Hz silent frame is 1440 bytes
-law mp3_len32:
-  {len.of(Au.encode_mp3(Au.clip(32000, 1, Au.s16(), [0]))) == 1440 : U32}
-
-# LAW: binary32 silence uses the same header as s16 silence
-law mp3_f32_head:
-  {head.of(Au.encode_mp3(Au.clip(44100, 1, Au.f32(), [0]))) == [255, 251, 224, 196] : List<&2, U32>}
-
 # LAW: an empty sample list does not encode
 law mp3_empty:
   {Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [])) == None{} : Maybe<&2, List<&2, U32>>}
@@ -297,6 +258,7 @@ law mp3_rate:
   {Au.encode_mp3(Au.clip(22050, 1, Au.s16(), [0])) == None{} : Maybe<&2, List<&2, U32>>}
 
 # LAW: ISO/IEC 11172-3 — silent 44100 Hz mono is FF FB E0 C4 and then zeros
+# (header + length; weaker head/len/encode-then-decode laws omitted — same Enc.enc.run)
 law mp3_silence_frame:
   {Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [0])) == Some{frame.z([255, 251, 224, 196], 1044)}
     : Maybe<&2, List<&2, U32>>}
@@ -341,42 +303,14 @@ law mp3_f32_frame:
   {Au.encode_mp3(Au.clip(44100, 1, Au.f32(), [0])) == Some{frame.z([255, 251, 224, 196], 1044)}
     : Maybe<&2, List<&2, U32>>}
 
-# LAW: ISO/IEC 11172-3 — one s16 sample still opens FF FB E0 C4
-law mp3_pair_head:
-  {head.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [1]))) == [255, 251, 224, 196] : List<&2, U32>}
-
-# LAW: ISO/IEC 11172-3 — that frame is 1152 * 320 * 125 / 44100 bytes
-law mp3_pair_len:
-  {len.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [1]))) == 1044 : U32}
-
-# LAW: ISO/IEC 11172-3 — the first granule's big_values is 1
-law mp3_pair_big:
-  {gd.big(gran.0(pair.bytes())) == 1 : U32}
-
-# LAW: ISO/IEC 11172-3 — that granule's global_gain is 0
-law mp3_pair_gain:
-  {gd.gain(gran.0(pair.bytes())) == 0 : U32}
-
-# LAW: ISO/IEC 11172-3 — part2_3_length of that granule is 4 bits
-law mp3_pair_part:
-  {gd.part(gran.0(pair.bytes())) == 4 : U32}
-
-# LAW: ISO/IEC 11172-3 — the block is long (window_switching_flag 0)
-law mp3_pair_long:
-  {gd.block(gran.0(pair.bytes())) == 0 : U32}
-
-# LAW: ISO/IEC 11172-3 — table_select is Huffman table 13
-law mp3_pair_tab:
-  {gd.tab(gran.0(pair.bytes())) == 13 : U32}
-
-# LAW: ISO/IEC 11172-3 — the second granule's big_values is 0
-law mp3_pair_rest:
-  {gd.big(gran.1(pair.bytes())) == 0 : U32}
-
-# LAW: ISO/IEC 11172-3 — decoding the pair yields magnitudes 1, 0, then zeros.
-# Those two words are the Huffman pair, not the synthesis filterbank.
-law mp3_pair_pcm:
-  {Au.decode_mp3(pair.bytes()) == Some{Au.clip(44100, 1, Au.f32(), pcm.pair())} : Maybe<&2, Au.Clip>}
+# LAW: ISO/IEC 11172-3 — one s16 sample of magnitude 1: FF FB E0 C4, 1044 bytes,
+# granule0 big_values=1 global_gain=0 part2_3_length=4 long block table 13,
+# granule1 big_values=0, decode yields the Huffman pair then zeros.
+law mp3_pair:
+  {pair.probe()
+    == ([255, 251, 224, 196], 1044, 1, 0, 4, 0, 13, 0,
+      Some{Au.clip(44100, 1, Au.f32(), pcm.pair())})
+    : List<&2, U32> & U32 & U32 & U32 & U32 & U32 & U32 & U32 & Maybe<&2, Au.Clip>}
 
 # LAW: the 44100 Hz scale-factor row is the first row
 law scf_44100:
