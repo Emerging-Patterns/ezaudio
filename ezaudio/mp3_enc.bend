@@ -956,37 +956,78 @@ def take.b(
 def spec.one(+blocks: List<&2, List<&2, F32>>, tab: Array<F32>) -> Array<F32> & List<&2, F32>:
   spec.bands(32n, take.b(18n, blocks, []), take.b(18n, drop.b(18n, blocks), []), tab, 0, [])
 
-def al.up(
-  +xs: List<&2, F32>, +up: F32, +dp: F32, +c0: F32, +c1: F32, +bb: U32, +ii: U32
-) -> List<&2, F32>:
-  f.put(f.put(xs, (((bb + 1 : U32) * 18 : U32) + ii : U32),
-      ((c0 * up : F32) + (c1 * dp : F32) : F32)),
-    ((bb * 18 : U32) + (17 - ii : U32) : U32),
+# 576 MDCT bins. Each butterfly reads and writes two of them; a list walks from the head.
+type Sa is Type:
+  Sa{acc: Array<F32>, cur: F32}
+
+def sa.of(got: Array<F32> & F32) -> Sa:
+  (acc, cur) = got
+  Sa{acc, cur}
+
+def al.fill(xs: List<&2, F32>, a: Array<F32>, +ii: U32) -> Array<F32>:
+  match xs:
+    case Nil{}:
+      a
+    case +hd <> tl:
+      al.fill(tl, Array.set(F32, a, ii, hd), (ii + 1 : U32))
+
+# 2^10 slots: one granule is 576 coefficients, filled in list order.
+def al.arr(xs: List<&2, F32>) -> Array<F32>:
+  al.fill(xs, Array.new(F32, 10n, 0.0), 0)
+
+def al.pull(hop: Nat, got: Sa, +ii: U32, acc: List<&2, F32>) -> List<&2, F32>:
+  match hop got:
+    case 0n Sa{_acc, +cur}:
+      f.rev(cur <> acc)
+    case 1n+p Sa{tab, +cur}:
+      al.pull(p, sa.of(Array.get(F32, tab, (ii + 1 : U32))), (ii + 1 : U32), (cur <> acc))
+
+def al.list(acc: Array<F32>) -> List<&2, F32>:
+  al.pull(575n, sa.of(Array.get(F32, acc, 0)), 0, [])
+
+def al.write(
+  acc: Array<F32>, +up: F32, +dp: F32, +c0: F32, +c1: F32, +hi: U32, +lo: U32
+) -> Array<F32>:
+  Array.set(F32, Array.set(F32, acc, hi, ((c0 * up : F32) + (c1 * dp : F32) : F32)), lo,
     ((F32.neg(c1) * up : F32) + (c0 * dp : F32) : F32))
 
-def al.one(+xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32) -> List<&2, F32>:
-  al.up(xs, f.nth(xs, (((bb + 1 : U32) * 18 : U32) + ii : U32)),
-    f.nth(xs, ((bb * 18 : U32) + (17 - ii : U32) : U32)), f.nth(aa, ii), f.nth(aa, (ii + 8 : U32)), bb, ii)
+def al.use(got: Sa, +dp: F32, +c0: F32, +c1: F32, +hi: U32, +lo: U32) -> Array<F32>:
+  match got:
+    case Sa{acc, +up}:
+      al.write(acc, up, dp, c0, c1, hi, lo)
 
-def al.i(hop: Nat, xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32) -> List<&2, F32>:
+def al.both(got: Sa, +c0: F32, +c1: F32, +hi: U32, +lo: U32) -> Array<F32>:
+  match got:
+    case Sa{acc, +dp}:
+      al.use(sa.of(Array.get(F32, acc, hi)), dp, c0, c1, hi, lo)
+
+def al.one(acc: Array<F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32) -> Array<F32>:
+  al.both(sa.of(Array.get(F32, acc, ((bb * 18 : U32) + (17 - ii : U32) : U32))), f.nth(aa, ii),
+    f.nth(aa, (ii + 8 : U32)), (((bb + 1 : U32) * 18 : U32) + ii : U32),
+    ((bb * 18 : U32) + (17 - ii : U32) : U32))
+
+def al.i(hop: Nat, acc: Array<F32>, +aa: List<&2, F32>, +bb: U32, +ii: U32) -> Array<F32>:
   match hop:
     case 0n:
-      xs
+      acc
     case 1n+p:
-      al.i(p, al.one(xs, aa, bb, ii), aa, bb, (ii + 1 : U32))
+      al.i(p, al.one(acc, aa, bb, ii), aa, bb, (ii + 1 : U32))
 
-def al.band(xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32) -> List<&2, F32>:
-  al.i(8n, xs, aa, bb, 0)
+def al.band(acc: Array<F32>, +aa: List<&2, F32>, +bb: U32) -> Array<F32>:
+  al.i(8n, acc, aa, bb, 0)
 
-def al.go(hop: Nat, xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32) -> List<&2, F32>:
+def al.go(hop: Nat, acc: Array<F32>, +aa: List<&2, F32>, +bb: U32) -> Array<F32>:
   match hop:
     case 0n:
-      xs
+      acc
     case 1n+p:
-      al.go(p, al.band(xs, aa, bb), aa, (bb - 1 : U32))
+      al.go(p, al.band(acc, aa, bb), aa, (bb - 1 : U32))
+
+def al.fin(acc: Array<F32>) -> List<&2, F32>:
+  al.list(al.go(31n, acc, f.of(Tab.tab.aa()), 30))
 
 def al.run(xs: List<&2, F32>) -> List<&2, F32>:
-  al.go(31n, xs, f.of(Tab.tab.aa()), 30)
+  al.fin(al.arr(xs))
 
 def spec.read(got: Br) -> Array<F32> & List<&2, F32>:
   match got:
