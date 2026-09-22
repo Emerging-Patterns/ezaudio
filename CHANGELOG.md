@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.5...v0.2.6) (2026-09-22)
+
+
+### Performance Improvements
+
+* keep the MP3 DCT spectrum in an Array ([#25](https://github.com/Emerging-Patterns/ezaudio/issues/25)) ([c6a7764](https://github.com/Emerging-Patterns/ezaudio/commit/c6a776473da421da2a959b2212bb8b6a9ee425c2))
+
 ## [0.2.5](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.4...v0.2.5) (2026-09-22)
 
 
