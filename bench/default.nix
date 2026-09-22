@@ -1,6 +1,10 @@
 # wave/ffmpeg vs ezaudio bench: native Bend driver + Nix-embedded compare script.
 # No checked-in *.py files — compare text lives in compare.nix and is written
 # with pkgs.writeText at eval time.
+#
+# Fairness: WAV speed is in-memory vs in-memory (BytesIO / struct). MP3 speed is
+# ezaudio absolute ms/op on non-silent real-world clips; ffmpeg is correctness
+# only (never a timed reference). Timing is not part of the flake check.
 {
   pkgs,
   lib,
