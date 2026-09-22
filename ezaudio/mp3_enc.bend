@@ -800,12 +800,29 @@ def gr.pack(st: Sr, +spec: List<&2, F32>, +hz: U32) -> Gr:
 def gr.of(+spec: List<&2, F32>, +hz: U32, +bud: U32) -> Gr:
   gr.pack(dz.run(spec, hz, bud), spec, hz)
 
-def bt.dot(vec: List<&2, F32>, +bt: List<&2, F32>, +base: U32, acc: F32) -> F32:
+# a matrix coefficient handed back beside the Array.get just read
+type Bf is Type:
+  Bf{tab: Array<F32>, co: F32}
+
+def bf.of(got: Array<F32> & F32) -> Bf:
+  (tab, co) = got
+  Bf{tab, co}
+
+def bt.go(tl: List<&2, F32>, got: Bf, +base: U32, +hd: F32, acc: F32) -> Array<F32> & F32:
+  match tl got:
+    case Nil{} Bf{tab, co}:
+      (tab, (acc + (co * hd : F32) : F32))
+    case +hd2 <> rest Bf{tab, co}:
+      bt.go(rest, bf.of(Array.get(F32, tab, (base + 1 : U32))), (base + 1 : U32), hd2,
+        (acc + (co * hd : F32) : F32))
+
+# tab.bt is 648 F32s. Each tap reads that table with Array.get.
+def bt.dot(vec: List<&2, F32>, tab: Array<F32>, +base: U32, acc: F32) -> Array<F32> & F32:
   match vec:
     case Nil{}:
-      acc
+      (tab, acc)
     case +hd <> tl:
-      bt.dot(tl, bt, (base + 1 : U32), (acc + (f.nth(bt, base) * hd : F32) : F32))
+      bt.go(tl, bf.of(Array.get(F32, tab, base)), base, hd, acc)
 
 def col.b(
   hop: Nat, xs: List<&2, List<&2, F32>>, +band: U32, acc: List<&2, F32>
@@ -818,17 +835,29 @@ def col.b(
     case 1n+p +blk <> tl:
       col.b(p, tl, band, f.nth(blk, band) <> acc)
 
-def band.k(hop: Nat, +vec: List<&2, F32>, +bt: List<&2, F32>, +kk: U32, acc: List<&2, F32>) -> List<&2, F32>:
+def band.step(
+  hop: Nat, +vec: List<&2, F32>, got: Bf, +kk: U32, acc: List<&2, F32>
+) -> Array<F32> & List<&2, F32>:
+  match hop got:
+    case 0n Bf{tab, co}:
+      (tab, f.rev((co <> acc)))
+    case 1n+p Bf{tab, co}:
+      band.step(p, vec, bf.of(bt.dot(vec, tab, ((kk + 1 : U32) * 36 : U32), 0.0)), (kk + 1 : U32),
+        (co <> acc))
+
+def band.k(
+  hop: Nat, +vec: List<&2, F32>, tab: Array<F32>, +kk: U32, acc: List<&2, F32>
+) -> Array<F32> & List<&2, F32>:
   match hop:
     case 0n:
-      f.rev(acc)
+      (tab, f.rev(acc))
     case 1n+p:
-      band.k(p, vec, bt, (kk + 1 : U32), (bt.dot(vec, bt, (kk * 36 : U32), 0.0) <> acc))
+      band.step(p, vec, bf.of(bt.dot(vec, tab, (kk * 36 : U32), 0.0)), kk, acc)
 
 def band.row(
-  +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, +bt: List<&2, F32>, +band: U32
-) -> List<&2, F32>:
-  band.k(18n, List.append(&2, F32, col.b(18n, aa, band, []), col.b(18n, cc, band, [])), bt, 0, [])
+  +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, tab: Array<F32>, +band: U32
+) -> Array<F32> & List<&2, F32>:
+  band.k(18n, List.append(&2, F32, col.b(18n, aa, band, []), col.b(18n, cc, band, [])), tab, 0, [])
 
 def flat.bands(xs: List<&2, List<&2, F32>>) -> List<&2, F32>:
   match xs:
@@ -837,15 +866,34 @@ def flat.bands(xs: List<&2, List<&2, F32>>) -> List<&2, F32>:
     case +hd <> tl:
       List.append(&2, F32, hd, flat.bands(tl))
 
+# one MDCT row handed back beside the matrix
+type Br is Type:
+  Br{tab: Array<F32>, row: List<&2, F32>}
+
+def br.of(got: Array<F32> & List<&2, F32>) -> Br:
+  (tab, row) = got
+  Br{tab, row}
+
+def spec.step(
+  hop: Nat, +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, got: Br, +band: U32,
+  acc: List<&2, List<&2, F32>>
+) -> Array<F32> & List<&2, F32>:
+  match hop got:
+    case 0n Br{tab, row}:
+      (tab, flat.bands(f.revs(row <> acc)))
+    case 1n+p Br{tab, row}:
+      spec.step(p, aa, cc, br.of(band.row(aa, cc, tab, (band + 1 : U32))), (band + 1 : U32),
+        (row <> acc))
+
 def spec.bands(
-  hop: Nat, +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, +bt: List<&2, F32>,
+  hop: Nat, +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, tab: Array<F32>,
   +band: U32, acc: List<&2, List<&2, F32>>
-) -> List<&2, F32>:
+) -> Array<F32> & List<&2, F32>:
   match hop:
     case 0n:
-      flat.bands(f.revs(acc))
+      (tab, flat.bands(f.revs(acc)))
     case 1n+p:
-      spec.bands(p, aa, cc, bt, (band + 1 : U32), band.row(aa, cc, bt, band) <> acc)
+      spec.step(p, aa, cc, br.of(band.row(aa, cc, tab, band)), band, acc)
 
 def drop.b(hop: Nat, xs: List<&2, List<&2, F32>>) -> List<&2, List<&2, F32>>:
   match hop xs:
@@ -867,8 +915,8 @@ def take.b(
     case 1n+p +hd <> tl:
       take.b(p, tl, hd <> acc)
 
-def spec.one(+blocks: List<&2, List<&2, F32>>, +bt: List<&2, F32>) -> List<&2, F32>:
-  spec.bands(32n, take.b(18n, blocks, []), take.b(18n, drop.b(18n, blocks), []), bt, 0, [])
+def spec.one(+blocks: List<&2, List<&2, F32>>, tab: Array<F32>) -> Array<F32> & List<&2, F32>:
+  spec.bands(32n, take.b(18n, blocks, []), take.b(18n, drop.b(18n, blocks), []), tab, 0, [])
 
 def al.up(
   +xs: List<&2, F32>, +up: F32, +dp: F32, +c0: F32, +c1: F32, +bb: U32, +ii: U32
@@ -902,17 +950,31 @@ def al.go(hop: Nat, xs: List<&2, F32>, +aa: List<&2, F32>, +bb: U32) -> List<&2,
 def al.run(xs: List<&2, F32>) -> List<&2, F32>:
   al.go(31n, xs, f.of(Tab.tab.aa()), 30)
 
-def spec.gran(+blocks: List<&2, List<&2, F32>>, +bt: List<&2, F32>) -> List<&2, F32>:
-  al.run(spec.one(blocks, bt))
+def spec.read(got: Br) -> Array<F32> & List<&2, F32>:
+  match got:
+    case Br{tab, row}:
+      (tab, al.run(row))
+
+def spec.gran(+blocks: List<&2, List<&2, F32>>, tab: Array<F32>) -> Array<F32> & List<&2, F32>:
+  spec.read(br.of(spec.one(blocks, tab)))
+
+def grans.step(
+  hop: Nat, +blocks: List<&2, List<&2, F32>>, got: Br, acc: List<&2, List<&2, F32>>
+) -> Array<F32> & List<&2, List<&2, F32>>:
+  match hop got:
+    case 0n Br{tab, row}:
+      (tab, f.revs(row <> acc))
+    case 1n+p Br{tab, row}:
+      grans.step(p, drop.b(18n, blocks), br.of(spec.gran(blocks, tab)), (row <> acc))
 
 def grans.go(
-  hop: Nat, +blocks: List<&2, List<&2, F32>>, +bt: List<&2, F32>, acc: List<&2, List<&2, F32>>
-) -> List<&2, List<&2, F32>>:
+  hop: Nat, +blocks: List<&2, List<&2, F32>>, tab: Array<F32>, acc: List<&2, List<&2, F32>>
+) -> Array<F32> & List<&2, List<&2, F32>>:
   match hop:
     case 0n:
-      f.revs(acc)
+      (tab, f.revs(acc))
     case 1n+p:
-      grans.go(p, drop.b(18n, blocks), bt, spec.gran(blocks, bt) <> acc)
+      grans.step(p, drop.b(18n, blocks), br.of(spec.gran(blocks, tab)), acc)
 
 def grans.np(z: Bool, +nb: U32) -> U32:
   match z:
@@ -924,9 +986,24 @@ def grans.np(z: Bool, +nb: U32) -> U32:
 def grans.n(+nb: U32) -> U32:
   grans.np(U32.is_le(nb, 18), nb)
 
+def bt.put(xs: List<&2, F32>, a: Array<F32>, +ii: U32) -> Array<F32>:
+  match xs:
+    case Nil{}:
+      a
+    case +hd <> tl:
+      bt.put(tl, Array.set(F32, a, ii, hd), (ii + 1 : U32))
+
+# 2^10 slots: tab.bt is 648 coefficients, filled in list order.
+def bt.of() -> Array<F32>:
+  bt.put(f.of(Tab.tab.bt()), Array.new(F32, 10n, 0.0), 0)
+
+def gran.fin(got: Array<F32> & List<&2, List<&2, F32>>) -> List<&2, List<&2, F32>>:
+  (_tab, xs) = got
+  xs
+
 def gran.all(+blocks: List<&2, List<&2, F32>>) -> List<&2, List<&2, F32>>:
-  grans.go(U32.to_nat(grans.n(U32.from_nat(List.length(&2, List<&2, F32>, blocks)))), blocks,
-    f.of(Tab.tab.bt()), [])
+  gran.fin(grans.go(U32.to_nat(grans.n(U32.from_nat(List.length(&2, List<&2, F32>, blocks)))), blocks,
+    bt.of(), []))
 
 def flip.samp(z: Bool, +vv: F32) -> F32:
   match z:
