@@ -14,14 +14,6 @@ def u32.arg.go(m: Maybe<&2, U32>) -> U32:
 def u32.arg(s: String) -> U32:
   u32.arg.go(U32.read(s))
 
-# n copies of x, prepended onto acc
-def rep(n: Nat, +x: U32, acc: List<&2, U32>) -> List<&2, U32>:
-  match n:
-    case 0n:
-      acc
-    case 1n+p:
-      rep(p, x, {x <> acc : List<&2, U32>})
-
 # a mono s16 clip filled with one sample value
 def solid.s16(+hz: U32, +nframes: U32, +sample: U32) -> Au.Clip:
   Au.fill(hz, 1, Au.s16(), sample, nframes)
