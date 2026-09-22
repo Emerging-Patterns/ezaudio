@@ -119,36 +119,6 @@ def Laws.mp3_crc():
 def Laws.mp3_short():
   {==}
 
-def Laws.mp3_silence_head():
-  {==}
-
-def Laws.mp3_silence_len():
-  {==}
-
-def Laws.mp3_silence_pcm():
-  {==}
-
-def Laws.mp3_stereo_head():
-  {==}
-
-def Laws.mp3_stereo_pcm():
-  {==}
-
-def Laws.mp3_hz48():
-  {==}
-
-def Laws.mp3_len48():
-  {==}
-
-def Laws.mp3_hz32():
-  {==}
-
-def Laws.mp3_len32():
-  {==}
-
-def Laws.mp3_f32_head():
-  {==}
-
 def Laws.mp3_empty():
   {==}
 
@@ -182,31 +152,7 @@ def Laws.mp3_hz32_fix():
 def Laws.mp3_f32_frame():
   {==}
 
-def Laws.mp3_pair_head():
-  {==}
-
-def Laws.mp3_pair_len():
-  {==}
-
-def Laws.mp3_pair_big():
-  {==}
-
-def Laws.mp3_pair_gain():
-  {==}
-
-def Laws.mp3_pair_part():
-  {==}
-
-def Laws.mp3_pair_long():
-  {==}
-
-def Laws.mp3_pair_tab():
-  {==}
-
-def Laws.mp3_pair_rest():
-  {==}
-
-def Laws.mp3_pair_pcm():
+def Laws.mp3_pair():
   {==}
 
 def Laws.scf_44100():
