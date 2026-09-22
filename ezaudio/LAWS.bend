@@ -53,15 +53,6 @@ def gran.1(xs: List<&2, U32>) -> Dec.Gd:
 def pair.bytes() -> List<&2, U32>:
   bytes.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [1])))
 
-# One Enc.enc.run for the Huffman-pair fixture: header, length, side info, decode.
-# Separate laws each re-normalized pair.bytes() and dominated `ez test` wall time.
-def pair.probe() -> List<&2, U32> & U32 & U32 & U32 & U32 & U32 & U32 & U32 & Maybe<&2, Au.Clip>:
-  +xs = pair.bytes()
-  +g0 = gran.0(xs)
-  +g1 = gran.1(xs)
-  (List.take(&2, U32, xs, 4n), U32.from_nat(List.length(&2, U32, xs)), gd.big(g0),
-    gd.gain(g0), gd.part(g0), gd.block(g0), gd.tab(g0), gd.big(g1), Au.decode_mp3(xs))
-
 def gd.big(g: Dec.Gd) -> U32:
   match g:
     case Dec.Gd{_part, big, _gain, _comp, _t0, _t1, _t2, _r0, _r1, _pre, _sc, _c1, _block}:
@@ -86,6 +77,15 @@ def gd.tab(g: Dec.Gd) -> U32:
   match g:
     case Dec.Gd{_part, _big, _gain, _comp, t0, _t1, _t2, _r0, _r1, _pre, _sc, _c1, _block}:
       t0
+
+# One Enc.enc.run for the Huffman-pair fixture: header, length, side info, decode.
+# Separate laws each re-normalized pair.bytes() and dominated `ez test` wall time.
+def pair.probe() -> List<&2, U32> & U32 & U32 & U32 & U32 & U32 & U32 & U32 & Maybe<&2, Au.Clip>:
+  +xs = pair.bytes()
+  +g0 = gran.0(xs)
+  +g1 = gran.1(xs)
+  (List.take(&2, U32, xs, 4n), U32.from_nat(List.length(&2, U32, xs)), gd.big(g0),
+    gd.gain(g0), gd.part(g0), gd.block(g0), gd.tab(g0), gd.big(g1), Au.decode_mp3(xs))
 
 # LAW: a clip keeps the rate it was built with
 law rate_reads:
