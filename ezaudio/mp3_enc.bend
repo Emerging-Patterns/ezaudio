@@ -652,13 +652,8 @@ def code.put(xs: List<&2, U32>, a: Array<U32>, +ii: U32) -> Array<U32>:
 def code.of() -> Array<U32>:
   code.put(Tab.tab.code(), Array.new(U32, 13n, 0), 0)
 
-def best.fin(got: Bs) -> Best:
-  match got:
-    case Bs{_tab, best}:
-      best
-
-def best.of(ix: List<&2, U32>) -> Best:
-  best.fin(bs.of(best.go(hp.cands(), ix, Bs{code.of(), Best{0, 0, [], 0}}, Tab.tab.lin())))
+def best.of(ix: List<&2, U32>, codes: Array<U32>) -> Array<U32> & Best:
+  best.go(hp.cands(), ix, Bs{codes, Best{0, 0, [], 0}}, Tab.tab.lin())
 
 def ix.p(z: Bool, +mm: U32, +aa: U32) -> U32:
   match z:
@@ -681,6 +676,10 @@ def ix.max(xs: List<&2, U32>, +mm: U32) -> U32:
 type Sr is Data:
   Sr{lo: U32, hi: U32, gg: U32, tab: U32, bits: List<&2, U32>, ok: U32}
 
+# gain search state beside the Huffman code table
+type Rw is Type:
+  Rw{st: Sr, codes: Array<U32>}
+
 def sr.g1(z: Bool, +mx: U32) -> Bool:
   match z:
     case False{}:
@@ -702,61 +701,62 @@ def sr.fit(
       Sr{(mid + 1 : U32), hi, ogg, ot, obits, ook}
 
 def sr.best(
-  b: Best, +mx: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32, +ogg: U32, +ot: U32,
+  got: Array<U32> & Best, +mx: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32, +ogg: U32, +ot: U32,
   obits: List<&2, U32>, +ook: U32
-) -> Sr:
+) -> Rw:
+  (codes, b) = got
   match b:
     case Best{tt, nn, bb, bk}:
-      sr.fit(sr.good(bk, nn, bud, mx), lo, hi, mid, tt, bb, ogg, ot, obits, ook)
+      Rw{sr.fit(sr.good(bk, nn, bud, mx), lo, hi, mid, tt, bb, ogg, ot, obits, ook), codes}
 
 def sr.zero(
   z: Bool, +ix: List<&2, U32>, +mx: U32, +big: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32,
-  +ogg: U32, +ot: U32, obits: List<&2, U32>, +ook: U32
-) -> Sr:
+  +ogg: U32, +ot: U32, obits: List<&2, U32>, +ook: U32, codes: Array<U32>
+) -> Rw:
   match z:
     case True{}:
-      sr.fit(True{}, lo, hi, mid, 0, [], ogg, ot, obits, ook)
+      Rw{sr.fit(True{}, lo, hi, mid, 0, [], ogg, ot, obits, ook), codes}
     case False{}:
-      sr.best(best.of(take.u(U32.to_nat((big * 2 : U32)), ix, [])), mx, bud, lo, hi, mid, ogg, ot,
-        obits, ook)
+      sr.best(best.of(take.u(U32.to_nat((big * 2 : U32)), ix, []), codes), mx, bud, lo, hi, mid, ogg,
+        ot, obits, ook)
 
 def sr.ix(
   +ix: List<&2, U32>, +hz: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32, +ogg: U32, +ot: U32,
-  obits: List<&2, U32>, +ook: U32
-) -> Sr:
-  sr.zero(U32.is_eq(bv.of(ix, hz), 0), ix, ix.max(ix, 0), bv.of(ix, hz), bud, lo, hi, mid, ogg, ot,
-    obits, ook)
+  obits: List<&2, U32>, +ook: U32, codes: Array<U32>
+) -> Rw:
+  +big = bv.of(ix, hz)
+  sr.zero(U32.is_eq(big, 0), ix, ix.max(ix, 0), big, bud, lo, hi, mid, ogg, ot, obits, ook, codes)
 
 def sr.try(
   +spec: List<&2, F32>, +hz: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32, +ogg: U32, +ot: U32,
-  obits: List<&2, U32>, +ook: U32
-) -> Sr:
-  sr.ix(q.all(spec, gain.of(mid)), hz, bud, lo, hi, mid, ogg, ot, obits, ook)
+  obits: List<&2, U32>, +ook: U32, codes: Array<U32>
+) -> Rw:
+  sr.ix(q.all(spec, gain.of(mid)), hz, bud, lo, hi, mid, ogg, ot, obits, ook, codes)
 
 def sr.live(
   go: Bool, +spec: List<&2, F32>, +hz: U32, +bud: U32, +lo: U32, +hi: U32, +gg: U32, +tab: U32,
-  bits: List<&2, U32>, +ok: U32
-) -> Sr:
+  bits: List<&2, U32>, +ok: U32, codes: Array<U32>
+) -> Rw:
   match go:
     case False{}:
-      Sr{lo, hi, gg, tab, bits, ok}
+      Rw{Sr{lo, hi, gg, tab, bits, ok}, codes}
     case True{}:
-      sr.try(spec, hz, bud, lo, hi, U32.div((lo + hi : U32), 2), gg, tab, bits, ok)
+      sr.try(spec, hz, bud, lo, hi, U32.div((lo + hi : U32), 2), gg, tab, bits, ok, codes)
 
-def sr.step(spec: List<&2, F32>, +hz: U32, +bud: U32, st: Sr) -> Sr:
-  match st:
-    case Sr{+lo, +hi, +gg, +tab, bits, +ok}:
-      sr.live(U32.is_le(lo, hi), spec, hz, bud, lo, hi, gg, tab, bits, ok)
+def sr.step(spec: List<&2, F32>, +hz: U32, +bud: U32, got: Rw) -> Rw:
+  match got:
+    case Rw{Sr{+lo, +hi, +gg, +tab, bits, +ok}, codes}:
+      sr.live(U32.is_le(lo, hi), spec, hz, bud, lo, hi, gg, tab, bits, ok, codes)
 
-def sr.go(hop: Nat, +spec: List<&2, F32>, +hz: U32, +bud: U32, st: Sr) -> Sr:
+def sr.go(hop: Nat, +spec: List<&2, F32>, +hz: U32, +bud: U32, got: Rw) -> Rw:
   match hop:
     case 0n:
-      st
+      got
     case 1n+p:
-      sr.go(p, spec, hz, bud, sr.step(spec, hz, bud, st))
+      sr.go(p, spec, hz, bud, sr.step(spec, hz, bud, got))
 
-def sr.run(spec: List<&2, F32>, +hz: U32, +bud: U32) -> Sr:
-  sr.go(8n, spec, hz, bud, Sr{0, 255, 0, 0, [], 0})
+def sr.run(spec: List<&2, F32>, +hz: U32, +bud: U32, codes: Array<U32>) -> Rw:
+  sr.go(8n, spec, hz, bud, Rw{Sr{0, 255, 0, 0, [], 0}, codes})
 
 def pk.p(z: Bool, +mm: F32, +aa: F32) -> F32:
   match z:
@@ -790,40 +790,47 @@ def dz.apply(xs: List<&2, F32>, +thr: F32) -> List<&2, F32>:
       dz.one(F32.is_lt(F32.abs(hd), thr), hd) <> dz.apply(tl, thr)
 
 def dz.on(
-  done: Bool, st: Sr, +spec: List<&2, F32>, +pk: F32, +thr: U32, +hz: U32, +bud: U32
-) -> Sr:
+  done: Bool, st: Sr, +spec: List<&2, F32>, +pk: F32, +thr: U32, +hz: U32, +bud: U32,
+  codes: Array<U32>
+) -> Rw:
   match done:
     case True{}:
-      st
+      Rw{st, codes}
     case False{}:
-      sr.run(dz.apply(spec, (pk * f32.bits(thr) : F32)), hz, bud)
+      sr.run(dz.apply(spec, (pk * f32.bits(thr) : F32)), hz, bud, codes)
 
-def dz.try(st: Sr, +spec: List<&2, F32>, +pk: F32, +thr: U32, +hz: U32, +bud: U32) -> Sr:
-  match st:
-    case Sr{+lo, +hi, +gg, +tab, bits, +ok}:
-      dz.on(U32.is_eq(ok, 1), Sr{lo, hi, gg, tab, bits, ok}, spec, pk, thr, hz, bud)
+def dz.try(got: Rw, +spec: List<&2, F32>, +pk: F32, +thr: U32, +hz: U32, +bud: U32) -> Rw:
+  match got:
+    case Rw{Sr{+lo, +hi, +gg, +tab, bits, +ok}, codes}:
+      dz.on(U32.is_eq(ok, 1), Sr{lo, hi, gg, tab, bits, ok}, spec, pk, thr, hz, bud, codes)
 
 def dz.go(
-  thrs: List<&2, U32>, +spec: List<&2, F32>, +pk: F32, +hz: U32, +bud: U32, st: Sr
-) -> Sr:
+  thrs: List<&2, U32>, +spec: List<&2, F32>, +pk: F32, +hz: U32, +bud: U32, got: Rw
+) -> Rw:
   match thrs:
     case Nil{}:
-      st
+      got
     case +hd <> tl:
-      dz.go(tl, spec, pk, hz, bud, dz.try(st, spec, pk, hd, hz, bud))
+      dz.go(tl, spec, pk, hz, bud, dz.try(got, spec, pk, hd, hz, bud))
 
 def dz.thrs() -> List<&2, U32>:
   [953267991, 981668463, 994352038, 1008981770, 1022739087, 1036831949, 1045220557, 1053609165]
 
-def dz.maybe(tiny: Bool, +spec: List<&2, F32>, +pk: F32, +hz: U32, +bud: U32) -> Sr:
+def dz.maybe(tiny: Bool, +spec: List<&2, F32>, +pk: F32, +hz: U32, +bud: U32, codes: Array<U32>) -> Rw:
   match tiny:
     case True{}:
-      Sr{0, 0, 0, 0, [], 1}
+      Rw{Sr{0, 0, 0, 0, [], 1}, codes}
     case False{}:
-      dz.go(dz.thrs(), spec, pk, hz, bud, Sr{0, 255, 0, 0, [], 0})
+      dz.go(dz.thrs(), spec, pk, hz, bud, Rw{Sr{0, 255, 0, 0, [], 0}, codes})
+
+def dz.fin(got: Rw) -> Sr:
+  match got:
+    case Rw{st, _codes}:
+      st
 
 def dz.run(+spec: List<&2, F32>, +hz: U32, +bud: U32) -> Sr:
-  dz.maybe(F32.is_lt(pk.go(spec, 0.0), f32.bits(730643660)), spec, pk.go(spec, 0.0), hz, bud)
+  +pk = pk.go(spec, 0.0)
+  dz.fin(dz.maybe(F32.is_lt(pk, f32.bits(730643660)), spec, pk, hz, bud, code.of()))
 
 # one quantized granule: part2_3_length, big_values, global_gain, table, bits
 type Gr is Data:
@@ -1336,8 +1343,12 @@ def pulse.mag0(z: Bool, +w: U32) -> U32:
 def pulse.mag(+w: U32) -> U32:
   pulse.mag0(U32.is_eq(w, 0), w)
 
+def pulse.best(got: Array<U32> & Best) -> Best:
+  (_codes, b) = got
+  b
+
 def pulse.frame(+hz: U32, +mag: U32) -> List<&2, U32>:
-  pk.one([pulse.gr(best.of([mag, 0])), Gr{0, 0, 0, 0, []}], hz, 1)
+  pk.one([pulse.gr(pulse.best(best.of([mag, 0], code.of()))), Gr{0, 0, 0, 0, []}], hz, 1)
 
 def pk.chan(
   specs: List<&2, List<&2, F32>>, +hz: U32, +bud: U32, acc: List<&2, Gr>
