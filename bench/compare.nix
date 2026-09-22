@@ -286,14 +286,15 @@ def correct_mp3():
             add_case("C ezaudio mp3 silence encode", name, "PASS" if ok else "FAIL",
                      f"len={len(got_bytes)} expected={nbytes}")
 
-        # ffmpeg decode of the LAWS silent frame → near silence
+        # ffmpeg decode of two LAWS silent frames → near silence (ffmpeg wants ≥2 frames)
         try:
-            fhz, fnch, fpx = ffmpeg_decode_mp3_to_f32(path)
-            # Compare only that energy is essentially zero (fair across filterbanks)
+            twin = os.path.join(WORK, name.replace(" ", "_") + "_x2.mp3")
+            open(twin, "wb").write(raw + raw)
+            fhz, fnch, fpx = ffmpeg_decode_mp3_to_f32(twin)
             rrms = rms_f32_bits(fpx)
             ok = rrms < 1e-3 and fhz == hz and fnch == nch
             add_case("D ffmpeg←ezaudio silence", name, "PASS" if ok else "FAIL",
-                     f"ffmpeg {fhz}/{fnch} n={len(fpx)} rms={rrms:.2e}")
+                     f"ffmpeg {fhz}/{fnch} n={len(fpx)} rms={rrms:.2e} (2 frames)")
         except Exception as e:
             add_case("D ffmpeg←ezaudio silence", name, "FAIL", repr(e)[:200])
 
