@@ -69,34 +69,69 @@ def y.fold(xs: List<&2, F32>, acc: List<&2, F32>, +ii: U32) -> List<&2, F32>:
     case +hd <> tl:
       y.fold(tl, y.add(acc, ii, hd), y.wrap(U32.is_eq(ii, 63), ii))
 
-def dot.row(ys: List<&2, F32>, +tab: List<&2, F32>, +base: U32, acc: F32) -> F32:
+# a cosine table handed back beside the coefficient Array.get just read
+type Cf is Type:
+  Cf{tab: Array<F32>, co: F32}
+
+def cf.of(got: Array<F32> & F32) -> Cf:
+  (tab, co) = got
+  Cf{tab, co}
+
+def dot.go(tl: List<&2, F32>, got: Cf, +base: U32, +hd: F32, acc: F32) -> Array<F32> & F32:
+  match tl got:
+    case Nil{} Cf{tab, co}:
+      (tab, (acc + (co * hd : F32) : F32))
+    case +hd2 <> rest Cf{tab, co}:
+      dot.go(rest, cf.of(Array.get(F32, tab, (base + 1 : U32))), (base + 1 : U32), hd2,
+        (acc + (co * hd : F32) : F32))
+
+# tab.cos is 2048 F32s. Each tap reads that table with Array.get.
+def dot.row(ys: List<&2, F32>, tab: Array<F32>, +base: U32, acc: F32) -> Array<F32> & F32:
   match ys:
     case Nil{}:
-      acc
+      (tab, acc)
     case +hd <> tl:
-      dot.row(tl, tab, (base + 1 : U32), (acc + (f.nth(tab, base) * hd : F32) : F32))
+      dot.go(tl, cf.of(Array.get(F32, tab, base)), base, hd, acc)
 
-def sb.rows(hop: Nat, +tab: List<&2, F32>, +ys: List<&2, F32>, +row: U32, acc: List<&2, F32>) -> List<&2, F32>:
+def sb.go(
+  hop: Nat, got: Cf, +ys: List<&2, F32>, +row: U32, acc: List<&2, F32>
+) -> Array<F32> & List<&2, F32>:
+  match hop got:
+    case 0n Cf{tab, dd}:
+      (tab, f.rev(((dd / 2.0 : F32) <> acc)))
+    case 1n+p Cf{tab, dd}:
+      sb.go(p, cf.of(dot.row(ys, tab, ((row + 1 : U32) * 64 : U32), 0.0)), ys, (row + 1 : U32),
+        ((dd / 2.0 : F32) <> acc))
+
+def sb.rows(
+  hop: Nat, tab: Array<F32>, +ys: List<&2, F32>, +row: U32, acc: List<&2, F32>
+) -> Array<F32> & List<&2, F32>:
   match hop:
     case 0n:
-      f.rev(acc)
+      (tab, f.rev(acc))
     case 1n+p:
-      sb.rows(p, tab, ys, (row + 1 : U32), ((dot.row(ys, tab, (row * 64 : U32), 0.0) / 2.0 : F32) <> acc))
+      sb.go(p, cf.of(dot.row(ys, tab, (row * 64 : U32), 0.0)), ys, row, acc)
 
 # subband samples of one shifted block. x holds 512 windowed-ready samples.
-def an.sb(+xx: List<&2, F32>, +win: List<&2, F32>, +cos: List<&2, F32>) -> List<&2, F32>:
+def an.sb(+xx: List<&2, F32>, +win: List<&2, F32>, cos: Array<F32>) -> Array<F32> & List<&2, F32>:
   sb.rows(32n, cos, y.fold(mul.zip(xx, win, []), List.replicate(F32, 64n, 0.0), 0), 0, [])
 
 # analysis delay line and finished subband blocks, newest block first
 type An is Data:
   An{x: List<&2, F32>, out: List<&2, List<&2, F32>>}
 
-def an.pushed(
-  +nx: List<&2, F32>, out: List<&2, List<&2, F32>>, +win: List<&2, F32>, +cos: List<&2, F32>
-) -> An:
-  An{nx, an.sb(nx, win, cos) <> out}
+def an.done(
+  +nx: List<&2, F32>, out: List<&2, List<&2, F32>>, got: Array<F32> & List<&2, F32>
+) -> An & Array<F32>:
+  (cos, sb) = got
+  (An{nx, sb <> out}, cos)
 
-def an.push(st: An, blk: List<&2, F32>, +win: List<&2, F32>, +cos: List<&2, F32>) -> An:
+def an.pushed(
+  +nx: List<&2, F32>, out: List<&2, List<&2, F32>>, +win: List<&2, F32>, cos: Array<F32>
+) -> An & Array<F32>:
+  an.done(nx, out, an.sb(nx, win, cos))
+
+def an.push(st: An, blk: List<&2, F32>, +win: List<&2, F32>, cos: Array<F32>) -> An & Array<F32>:
   match st:
     case An{+xx, out}:
       an.pushed(List.append(&2, F32, List.drop(&2, F32, xx, 32n), blk), out, win, cos)
@@ -110,16 +145,27 @@ def an.blk(
   [s00, s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14, s15,
    s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, s28, s29, s30, s31]
 
-def an.walk(xs: List<&2, F32>, st: An, +win: List<&2, F32>, +cos: List<&2, F32>) -> An:
-  match xs:
+# the delay line paired with the cosine table, which has one owner
+type Aw is Type:
+  Aw{st: An, cos: Array<F32>}
+
+def aw.of(got: An & Array<F32>) -> Aw:
+  (st, cos) = got
+  Aw{st, cos}
+
+def an.go(xs: List<&2, F32>, got: Aw, +win: List<&2, F32>) -> An & Array<F32>:
+  match xs got:
     case +s00 <> +s01 <> +s02 <> +s03 <> +s04 <> +s05 <> +s06 <> +s07 <> +s08 <> +s09 <> +s10
       <> +s11 <> +s12 <> +s13 <> +s14 <> +s15 <> +s16 <> +s17 <> +s18 <> +s19 <> +s20 <> +s21
-      <> +s22 <> +s23 <> +s24 <> +s25 <> +s26 <> +s27 <> +s28 <> +s29 <> +s30 <> +s31 <> rest:
-      an.walk(rest, an.push(st, an.blk(s00, s01, s02, s03, s04, s05, s06, s07, s08, s09, s10,
-        s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27,
-        s28, s29, s30, s31), win, cos), win, cos)
-    case _:
-      st
+      <> +s22 <> +s23 <> +s24 <> +s25 <> +s26 <> +s27 <> +s28 <> +s29 <> +s30 <> +s31 <> rest Aw{st, cos}:
+      an.go(rest, aw.of(an.push(st, an.blk(s00, s01, s02, s03, s04, s05, s06, s07, s08, s09,
+        s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26,
+        s27, s28, s29, s30, s31), win, cos)), win)
+    case _ Aw{st, cos}:
+      (st, cos)
+
+def an.walk(xs: List<&2, F32>, st: An, +win: List<&2, F32>, cos: Array<F32>) -> An & Array<F32>:
+  an.go(xs, Aw{st, cos}, win)
 
 def an.zero() -> An:
   An{List.replicate(F32, 512n, 0.0), []}
@@ -133,8 +179,23 @@ def an.out(st: An) -> List<&2, List<&2, F32>>:
     case An{_xx, out}:
       f.revs(out)
 
+def cos.put(xs: List<&2, F32>, a: Array<F32>, +ii: U32) -> Array<F32>:
+  match xs:
+    case Nil{}:
+      a
+    case +hd <> tl:
+      cos.put(tl, Array.set(F32, a, ii, hd), (ii + 1 : U32))
+
+# 2^11 slots: tab.cos is 2048 coefficients, filled in list order.
+def cos.of() -> Array<F32>:
+  cos.put(f.of(Tab.tab.cos()), Array.new(F32, 11n, 0.0), 0)
+
+def an.fin(got: An & Array<F32>) -> List<&2, List<&2, F32>>:
+  (st, _cos) = got
+  an.out(st)
+
 def an.run(xs: List<&2, F32>) -> List<&2, List<&2, F32>>:
-  an.out(an.walk(xs, an.zero(), f.of(Tab.tab.win()), f.of(Tab.tab.cos())))
+  an.fin(an.walk(xs, an.zero(), f.of(Tab.tab.win()), cos.of()))
 
 # ldexp_q2 residual: mantissa and the exponent still to apply
 type Ld is Data:
