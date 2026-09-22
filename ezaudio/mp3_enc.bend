@@ -862,16 +862,66 @@ def bt.dot(vec: List<&2, F32>, tab: Array<F32>, +base: U32, acc: F32) -> Array<F
     case +hd <> tl:
       bt.go(tl, bf.of(Array.get(F32, tab, base)), base, hd, acc)
 
-def col.b(
-  hop: Nat, xs: List<&2, List<&2, F32>>, +band: U32, acc: List<&2, F32>
-) -> List<&2, F32>:
-  match hop xs:
-    case 0n _:
-      f.rev(acc)
-    case _ Nil{}:
-      f.rev(acc)
-    case 1n+p +blk <> tl:
-      col.b(p, tl, band, f.nth(blk, band) <> acc)
+# 18 blocks × 32 bands. Each band gather indexes one sample; a list walks from the head.
+type Cg is Type:
+  Cg{acc: Array<F32>, cur: F32}
+
+def cg.of(got: Array<F32> & F32) -> Cg:
+  (acc, cur) = got
+  Cg{acc, cur}
+
+def col.band(xs: List<&2, F32>, a: Array<F32>, +base: U32, +j: U32) -> Array<F32>:
+  match xs:
+    case Nil{}:
+      a
+    case +hd <> tl:
+      col.band(tl, Array.set(F32, a, (base + j : U32), hd), base, (j + 1 : U32))
+
+def col.fill(xs: List<&2, List<&2, F32>>, a: Array<F32>, +bi: U32) -> Array<F32>:
+  match xs:
+    case Nil{}:
+      a
+    case +blk <> tl:
+      col.fill(tl, col.band(blk, a, (bi * 32 : U32), 0), (bi + 1 : U32))
+
+# 2^10 slots: 18 blocks of 32 bands, filled in block-major order.
+def col.arr(xs: List<&2, List<&2, F32>>) -> Array<F32>:
+  col.fill(xs, Array.new(F32, 10n, 0.0), 0)
+
+def col.pull(
+  hop: Nat, got: Cg, +band: U32, +bi: U32, acc: List<&2, F32>
+) -> Array<F32> & List<&2, F32>:
+  match hop got:
+    case 0n Cg{tab, +cur}:
+      (tab, f.rev(cur <> acc))
+    case 1n+p Cg{tab, +cur}:
+      col.pull(p, cg.of(Array.get(F32, tab, (((bi + 1 : U32) * 32 : U32) + band : U32))), band,
+        (bi + 1 : U32), (cur <> acc))
+
+def col.b(tab: Array<F32>, +band: U32) -> Array<F32> & List<&2, F32>:
+  col.pull(17n, cg.of(Array.get(F32, tab, band)), band, 0, [])
+
+# one column handed back beside its grid
+type Cv is Type:
+  Cv{tab: Array<F32>, xs: List<&2, F32>}
+
+def cv.of(got: Array<F32> & List<&2, F32>) -> Cv:
+  (tab, xs) = got
+  Cv{tab, xs}
+
+# both grids beside the 36-sample MDCT vector
+type Vx is Type:
+  Vx{aa: Array<F32>, cc: Array<F32>, xs: List<&2, F32>}
+
+def vx.cat(aa: Array<F32>, va: List<&2, F32>, got: Cv) -> Vx:
+  match got:
+    case Cv{cc, vc}:
+      Vx{aa, cc, List.append(&2, F32, va, vc)}
+
+def vx.join(got: Cv, cc: Array<F32>, +band: U32) -> Vx:
+  match got:
+    case Cv{aa, va}:
+      vx.cat(aa, va, cv.of(col.b(cc, band)))
 
 def band.step(
   hop: Nat, +vec: List<&2, F32>, got: Bf, +kk: U32, acc: List<&2, F32>
@@ -892,18 +942,6 @@ def band.k(
     case 1n+p:
       band.step(p, vec, bf.of(bt.dot(vec, tab, (kk * 36 : U32), 0.0)), kk, acc)
 
-def band.row(
-  +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, tab: Array<F32>, +band: U32
-) -> Array<F32> & List<&2, F32>:
-  band.k(18n, List.append(&2, F32, col.b(18n, aa, band, []), col.b(18n, cc, band, [])), tab, 0, [])
-
-def flat.bands(xs: List<&2, List<&2, F32>>) -> List<&2, F32>:
-  match xs:
-    case Nil{}:
-      []
-    case +hd <> tl:
-      List.append(&2, F32, hd, flat.bands(tl))
-
 # one MDCT row handed back beside the matrix
 type Br is Type:
   Br{tab: Array<F32>, row: List<&2, F32>}
@@ -912,26 +950,48 @@ def br.of(got: Array<F32> & List<&2, F32>) -> Br:
   (tab, row) = got
   Br{tab, row}
 
+# grids and matrix beside one MDCT band row
+type Bk is Type:
+  Bk{aa: Array<F32>, cc: Array<F32>, tab: Array<F32>, row: List<&2, F32>}
+
+def bk.make(aa: Array<F32>, cc: Array<F32>, got: Br) -> Bk:
+  match got:
+    case Br{tab, row}:
+      Bk{aa, cc, tab, row}
+
+def band.vec(got: Vx, tab: Array<F32>) -> Bk:
+  match got:
+    case Vx{aa, cc, vec}:
+      bk.make(aa, cc, br.of(band.k(18n, vec, tab, 0, [])))
+
+def band.row(aa: Array<F32>, cc: Array<F32>, tab: Array<F32>, +band: U32) -> Bk:
+  band.vec(vx.join(cv.of(col.b(aa, band)), cc, band), tab)
+
+def flat.bands(xs: List<&2, List<&2, F32>>) -> List<&2, F32>:
+  match xs:
+    case Nil{}:
+      []
+    case +hd <> tl:
+      List.append(&2, F32, hd, flat.bands(tl))
+
 def spec.step(
-  hop: Nat, +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, got: Br, +band: U32,
-  acc: List<&2, List<&2, F32>>
+  hop: Nat, got: Bk, +band: U32, acc: List<&2, List<&2, F32>>
 ) -> Array<F32> & List<&2, F32>:
   match hop got:
-    case 0n Br{tab, row}:
+    case 0n Bk{_aa, _cc, tab, row}:
       (tab, flat.bands(f.revs(row <> acc)))
-    case 1n+p Br{tab, row}:
-      spec.step(p, aa, cc, br.of(band.row(aa, cc, tab, (band + 1 : U32))), (band + 1 : U32),
-        (row <> acc))
+    case 1n+p Bk{aa, cc, tab, row}:
+      spec.step(p, band.row(aa, cc, tab, (band + 1 : U32)), (band + 1 : U32), (row <> acc))
 
 def spec.bands(
-  hop: Nat, +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, tab: Array<F32>,
-  +band: U32, acc: List<&2, List<&2, F32>>
+  hop: Nat, aa: Array<F32>, cc: Array<F32>, tab: Array<F32>, +band: U32,
+  acc: List<&2, List<&2, F32>>
 ) -> Array<F32> & List<&2, F32>:
   match hop:
     case 0n:
       (tab, flat.bands(f.revs(acc)))
     case 1n+p:
-      spec.step(p, aa, cc, br.of(band.row(aa, cc, tab, band)), band, acc)
+      spec.step(p, band.row(aa, cc, tab, band), band, acc)
 
 def drop.b(hop: Nat, xs: List<&2, List<&2, F32>>) -> List<&2, List<&2, F32>>:
   match hop xs:
@@ -954,7 +1014,8 @@ def take.b(
       take.b(p, tl, hd <> acc)
 
 def spec.one(+blocks: List<&2, List<&2, F32>>, tab: Array<F32>) -> Array<F32> & List<&2, F32>:
-  spec.bands(32n, take.b(18n, blocks, []), take.b(18n, drop.b(18n, blocks), []), tab, 0, [])
+  spec.bands(32n, col.arr(take.b(18n, blocks, [])), col.arr(take.b(18n, drop.b(18n, blocks), [])),
+    tab, 0, [])
 
 # 576 MDCT bins. Each butterfly reads and writes two of them; a list walks from the head.
 type Sa is Type:
