@@ -1,5 +1,7 @@
 # wave/ffmpeg vs ezaudio bench driver. EZA: "EZA1" + u32le hz/nch/fmt/nsamp + samples.
 # Built as a native ELF via `bend bench/main.bend -o …` (CC=bend-cc or clang -O3).
+# Speed path: bench-*-enc-file / bench-*-dec time the codec only (load outside IO.now).
+# Prefer non-silent EZA fixtures for MP3 so the filterbank path is measured, not silence.
 import ../ezaudio/main.bend as Au
 
 # unwrap a parsed U32, or zero when parse fails
@@ -304,7 +306,7 @@ def show.ms(t0: Nat, t1: Nat, +sum: U32, +hz: U32, +nframes: U32, +n: U32) -> St
   "MS " ++ Nat.show(Nat.sub(t1, t0)) ++ " SUM " ++ U32.show(sum) ++ " HZ " ++ U32.show(hz)
     ++ " FR " ++ U32.show(nframes) ++ " N " ++ U32.show(n)
 
-# timed solid s16 WAV encode bench
+# timed solid s16 WAV encode bench (micro; prefer file fixtures for real clips)
 def bench.wav.enc(+hz: U32, +nframes: U32, +n: U32) -> IO(Unit):
   +c = solid.s16(hz, nframes, 0)
   +k = U32.to_nat(n)
@@ -314,7 +316,7 @@ def bench.wav.enc(+hz: U32, +nframes: U32, +n: U32) -> IO(Unit):
     t1 : Nat <- IO.now()
     IO.print(show.ms(t0, t1, sum, hz, nframes, n))
 
-# timed solid s16 MP3 encode bench
+# timed solid s16 MP3 encode bench (silence fast-path only; prefer file fixtures)
 def bench.mp3.enc(+hz: U32, +nframes: U32, +n: U32) -> IO(Unit):
   +c = solid.s16(hz, nframes, 0)
   +k = U32.to_nat(n)
@@ -324,7 +326,49 @@ def bench.mp3.enc(+hz: U32, +nframes: U32, +n: U32) -> IO(Unit):
     t1 : Nat <- IO.now()
     IO.print(show.ms(t0, t1, sum, hz, nframes, n))
 
-# timed WAV decode bench from a file
+# timed encode_wav from an EZA fixture (speech/music; load outside the timer)
+def bench.wav.enc.file.go(m: Maybe<&2, Au.Clip>, +n: U32) -> IO(Unit):
+  match m:
+    case None{}:
+      die.msg("bad eza for bench-wav-enc-file")
+    case Some{+c}:
+      +k = U32.to_nat(n)
+      +hz = Au.rate(c)
+      +nframes = Au.count(c)
+      do IO<Unit>:
+        t0 : Nat <- IO.now()
+        sum : U32 = loop.wav.enc(c, k, 0)
+        t1 : Nat <- IO.now()
+        IO.print(show.ms(t0, t1, sum, hz, nframes, n))
+
+# load EZA then time encode_wav only
+def bench.wav.enc.file(path: String, +n: U32) -> IO(Unit):
+  do IO<Unit>:
+    xs : List<&2, U32> <- read.file(path)
+    bench.wav.enc.file.go(parse.eza(xs), n)
+
+# timed encode_mp3 from an EZA fixture (non-silent → full filterbank path)
+def bench.mp3.enc.file.go(m: Maybe<&2, Au.Clip>, +n: U32) -> IO(Unit):
+  match m:
+    case None{}:
+      die.msg("bad eza for bench-mp3-enc-file")
+    case Some{+c}:
+      +k = U32.to_nat(n)
+      +hz = Au.rate(c)
+      +nframes = Au.count(c)
+      do IO<Unit>:
+        t0 : Nat <- IO.now()
+        sum : U32 = loop.mp3.enc(c, k, 0)
+        t1 : Nat <- IO.now()
+        IO.print(show.ms(t0, t1, sum, hz, nframes, n))
+
+# load EZA then time encode_mp3 only
+def bench.mp3.enc.file(path: String, +n: U32) -> IO(Unit):
+  do IO<Unit>:
+    xs : List<&2, U32> <- read.file(path)
+    bench.mp3.enc.file.go(parse.eza(xs), n)
+
+# timed WAV decode bench from a file (bytes loaded once; decode loop timed)
 def bench.wav.dec(path: String, +n: U32) -> IO(Unit):
   +k = U32.to_nat(n)
   do IO<Unit>:
@@ -334,7 +378,7 @@ def bench.wav.dec(path: String, +n: U32) -> IO(Unit):
     t1 : Nat <- IO.now()
     IO.print(show.ms(t0, t1, sum, 0, 0, n))
 
-# timed MP3 decode bench from a file
+# timed MP3 decode bench from a file (bytes loaded once; decode loop timed)
 def bench.mp3.dec(path: String, +n: U32) -> IO(Unit):
   +k = U32.to_nat(n)
   do IO<Unit>:
@@ -345,7 +389,7 @@ def bench.mp3.dec(path: String, +n: U32) -> IO(Unit):
     IO.print(show.ms(t0, t1, sum, 0, 0, n))
 
 # fallthrough for unknown commands
-def run.m.at(z: Bool, +cmd: String, _a: String, _b: String, _c: String) -> IO(Unit):
+def run.o.at(z: Bool, +cmd: String, _a: String, _b: String, _c: String) -> IO(Unit):
   match z:
     case True{}:
       IO.print("pong")
@@ -353,32 +397,56 @@ def run.m.at(z: Bool, +cmd: String, _a: String, _b: String, _c: String) -> IO(Un
       die.msg("unknown command " ++ cmd)
 
 # dispatch the ping command
-def run.m(+cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
-  run.m.at(String.eq(cmd, "ping"), cmd, a, b, c)
+def run.o(+cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+  run.o.at(String.eq(cmd, "ping"), cmd, a, b, c)
 
 # dispatch bench-mp3-dec
-def run.l.at(z: Bool, +cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+def run.n.at(z: Bool, +cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
   match z:
     case True{}:
       bench.mp3.dec(a, u32.arg(b))
     case False{}:
-      run.m(cmd, a, b, c)
+      run.o(cmd, a, b, c)
 
 # try bench-mp3-dec then fall through
-def run.l(+cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
-  run.l.at(String.eq(cmd, "bench-mp3-dec"), cmd, a, b, c)
+def run.n(+cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+  run.n.at(String.eq(cmd, "bench-mp3-dec"), cmd, a, b, c)
 
 # dispatch bench-wav-dec
-def run.k.at(z: Bool, +cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+def run.m.at(z: Bool, +cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
   match z:
     case True{}:
       bench.wav.dec(a, u32.arg(b))
     case False{}:
-      run.l(cmd, a, b, c)
+      run.n(cmd, a, b, c)
 
 # try bench-wav-dec then fall through
+def run.m(+cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+  run.m.at(String.eq(cmd, "bench-wav-dec"), cmd, a, b, c)
+
+# dispatch bench-mp3-enc-file
+def run.l.at(z: Bool, +cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+  match z:
+    case True{}:
+      bench.mp3.enc.file(a, u32.arg(b))
+    case False{}:
+      run.m(cmd, a, b, c)
+
+# try bench-mp3-enc-file then fall through
+def run.l(+cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+  run.l.at(String.eq(cmd, "bench-mp3-enc-file"), cmd, a, b, c)
+
+# dispatch bench-wav-enc-file
+def run.k.at(z: Bool, +cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
+  match z:
+    case True{}:
+      bench.wav.enc.file(a, u32.arg(b))
+    case False{}:
+      run.l(cmd, a, b, c)
+
+# try bench-wav-enc-file then fall through
 def run.k(+cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
-  run.k.at(String.eq(cmd, "bench-wav-dec"), cmd, a, b, c)
+  run.k.at(String.eq(cmd, "bench-wav-enc-file"), cmd, a, b, c)
 
 # dispatch bench-mp3-enc
 def run.j.at(z: Bool, +cmd: String, +a: String, +b: String, +c: String) -> IO(Unit):
