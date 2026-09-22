@@ -680,23 +680,49 @@ def mac.mode(+kk: U32) -> U32:
 def mac.pos(+ii: U32, +kk: U32) -> U32:
   u.add(u.mul(u.sub(14, ii), 16), u.mul(kk, 2))
 
-# one of the eight loads
-def mac.step(mk: Mk, +syn: List<&2, F32>, +zlin: U32, +ii: U32, +kk: U32) -> Mk:
-  match mk:
-    case Mk{st, lin}:
-      mac.js(4n, Mk{st, lin}, f.at(syn, mac.pos(ii, kk)), f.at(syn, u.add(mac.pos(ii, kk), 1)),
-        u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(kk, 64)),
-        u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(u.sub(15, kk), 64)), mac.mode(kk), 0)
+# one window coefficient handed back beside the table Array.get just read
+type Sw is Type:
+  Sw{syn: Array<F32>, +w: F32}
+
+def sw.of(got: Array<F32> & F32) -> Sw:
+  (syn, w) = got
+  Sw{syn, w}
+
+def sw.at(syn: Array<F32>, +ii: U32) -> Sw:
+  sw.of(Array.get(F32, syn, ii))
+
+# 242 synthesis-window coefficients. 256 slots cover every mac.pos index.
+def sw.tab() -> Array<F32>:
+  ln.fill(Enc.f.of(Tab.tab.syn()), Array.new(F32, 8n, 0.0), 0)
+
+# MAC state plus the window table the next load still reads
+type Mw is Type:
+  Mw{mk: Mk, syn: Array<F32>}
+
+# second coefficient, then the eight-lane load
+def mac.step2(mk: Mk, got: Sw, +w0: F32, +zlin: U32, +ii: U32, +kk: U32) -> Mw:
+  match mk got:
+    case Mk{st, lin} Sw{syn, w1}:
+      Mw{mac.js(4n, Mk{st, lin}, w0, w1, u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(kk, 64)),
+        u.sub(u.add(zlin, u.mul(ii, 4)), u.mul(u.sub(15, kk), 64)), mac.mode(kk), 0), syn}
+
+# first coefficient, then its neighbour
+def mac.step1(mk: Mk, got: Sw, +pos: U32, +zlin: U32, +ii: U32, +kk: U32) -> Mw:
+  match got:
+    case Sw{syn, w0}:
+      mac.step2(mk, sw.at(syn, u.add(pos, 1)), w0, zlin, ii, kk)
+
+# one of the eight loads. Each tap reads the window Array.
+def mac.step(mk: Mk, syn: Array<F32>, +zlin: U32, +ii: U32, +kk: U32) -> Mw:
+  mac.step1(mk, sw.at(syn, mac.pos(ii, kk)), mac.pos(ii, kk), zlin, ii, kk)
 
 # eight loads
-def mac.k(
-  hop: Nat, mk: Mk, +syn: List<&2, F32>, +zlin: U32, +ii: U32, +kk: U32
-) -> Mk:
-  match hop mk:
-    case 0n Mk{st, lin}:
-      Mk{st, lin}
-    case 1n+p Mk{st, lin}:
-      mac.k(p, mac.step(Mk{st, lin}, syn, zlin, ii, kk), syn, zlin, ii, u.add(kk, 1))
+def mac.k(hop: Nat, got: Mw, +zlin: U32, +ii: U32, +kk: U32) -> Mw:
+  match hop got:
+    case 0n Mw{mk, syn}:
+      Mw{mk, syn}
+    case 1n+p Mw{mk, syn}:
+      mac.k(p, mac.step(mk, syn, zlin, ii, kk), zlin, ii, u.add(kk, 1))
 
 # scale a polyphase sum into a sample
 def mac.sc(+vv: F32) -> F32:
@@ -1140,72 +1166,81 @@ def blk.armed1(got: Pp) -> Sb:
 def blk.armed(lin: Array<F32>, pcm: Array<F32>, +nch: U32, +tm: U32) -> Sb:
   blk.armed1(blk.pairs(Pp{pcm, lin}, nch, u.mul(u.mul(32, nch), tm), u.add(u.mul(tm, 64), 60)))
 
-# polyphase state plus the granule Array the rows still read
+# polyphase state, the granule Array the rows still read, and the window table
 type Bg is Type:
-  Bg{st: Sb, gr: Array<F32>}
+  Bg{st: Sb, gr: Array<F32>, syn: Array<F32>}
 
-# preamble done: the pairs read the delay line, the granule stays put
-def blk.arm2(got: Lg, pcm: Array<F32>, +nch: U32, +tm: U32) -> Bg:
+# preamble done: the pairs read the delay line, the granule and window stay put
+def blk.arm2(got: Lg, pcm: Array<F32>, syn: Array<F32>, +nch: U32, +tm: U32) -> Bg:
   match got:
     case Lg{lin, gr}:
-      Bg{blk.armed(lin, pcm, nch, tm), gr}
+      Bg{blk.armed(lin, pcm, nch, tm), gr, syn}
 
 # open a block: preamble, then the four pairs
 def blk.arm(got: Bg, +nch: U32, +tm: U32) -> Bg:
   match got:
-    case Bg{st, gr}:
+    case Bg{st, gr, syn}:
       match st:
         case Sb{lin, pcm}:
-          blk.arm2(blk.pre(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm), pcm, nch, tm)
+          blk.arm2(blk.pre(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm), pcm, syn, nch, tm)
 
-def blk.row1(got: Mk, pcm: Array<F32>, +nch: U32, +tm: U32, +ii: U32) -> Sb:
+# a finished row, with the window table the next row still reads
+type Sr is Type:
+  Sr{st: Sb, syn: Array<F32>}
+
+def blk.row1(got: Mw, pcm: Array<F32>, +nch: U32, +tm: U32, +ii: U32) -> Sr:
   match got:
-    case Mk{st, lin2}:
-      Sb{lin2, mac.put(pcm, st, nch, u.mul(u.mul(32, nch), tm), ii)}
+    case Mw{mk, syn}:
+      match mk:
+        case Mk{st, lin2}:
+          Sr{Sb{lin2, mac.put(pcm, st, nch, u.mul(u.mul(32, nch), tm), ii)}, syn}
+
+def blk.row3(got: Sr, gr: Array<F32>) -> Bg:
+  match got:
+    case Sr{st, syn}:
+      Bg{st, gr, syn}
 
 # window the row just written
 def blk.row(
-  lin: Array<F32>, pcm: Array<F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
-) -> Sb:
-  blk.row1(mac.k(8n, Mk{mac.z(), lin}, syn, u.add(u.mul(tm, 64), 960), ii, 0), pcm, nch, tm, ii)
+  lin: Array<F32>, pcm: Array<F32>, syn: Array<F32>, +nch: U32, +tm: U32, +ii: U32
+) -> Sr:
+  blk.row1(mac.k(8n, Mw{Mk{mac.z(), lin}, syn}, u.add(u.mul(tm, 64), 960), ii, 0), pcm, nch, tm, ii)
 
 # window the row, keeping the granule for the rows still to come
 def blk.step2(
-  got: Lg, pcm: Array<F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
+  got: Lg, pcm: Array<F32>, syn: Array<F32>, +nch: U32, +tm: U32, +ii: U32
 ) -> Bg:
   match got:
     case Lg{lin, gr}:
-      Bg{blk.row(lin, pcm, nch, syn, tm, ii), gr}
+      blk.row3(blk.row(lin, pcm, syn, nch, tm, ii), gr)
 
 # one row of the block, from i = 14 down to 0
-def blk.step(got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32) -> Bg:
+def blk.step(got: Bg, +nch: U32, +tm: U32, +ii: U32) -> Bg:
   match got:
-    case Bg{st, gr}:
+    case Bg{st, gr, syn}:
       match st:
         case Sb{lin, pcm}:
-          blk.step2(blk.i(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm, ii), pcm, nch, syn, tm, ii)
+          blk.step2(blk.i(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm, ii), pcm, syn, nch, tm, ii)
 
 # fifteen rows
-def blk.i.go(
-  hop: Nat, got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
-) -> Bg:
+def blk.i.go(hop: Nat, got: Bg, +nch: U32, +tm: U32, +ii: U32) -> Bg:
   match hop got:
-    case 0n Bg{st, gr}:
-      Bg{st, gr}
-    case 1n+p Bg{st, gr}:
-      blk.i.go(p, blk.step(Bg{st, gr}, nch, syn, tm, ii), nch, syn, tm, u.sub(ii, 1))
+    case 0n Bg{st, gr, syn}:
+      Bg{st, gr, syn}
+    case 1n+p Bg{st, gr, syn}:
+      blk.i.go(p, blk.step(Bg{st, gr, syn}, nch, tm, ii), nch, tm, u.sub(ii, 1))
 
 # one time block
-def blk.one(got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32) -> Bg:
-  blk.i.go(15n, blk.arm(got, nch, tm), nch, syn, tm, 14)
+def blk.one(got: Bg, +nch: U32, +tm: U32) -> Bg:
+  blk.i.go(15n, blk.arm(got, nch, tm), nch, tm, 14)
 
 # nine time blocks, time = 0, 2, ..., 16
-def blk.go(hop: Nat, got: Bg, +nch: U32, +syn: List<&2, F32>, +tm: U32) -> Bg:
+def blk.go(hop: Nat, got: Bg, +nch: U32, +tm: U32) -> Bg:
   match hop got:
-    case 0n Bg{st, gr}:
-      Bg{st, gr}
-    case 1n+p Bg{st, gr}:
-      blk.go(p, blk.one(Bg{st, gr}, nch, syn, tm), nch, syn, u.add(tm, 2))
+    case 0n Bg{st, gr, syn}:
+      Bg{st, gr, syn}
+    case 1n+p Bg{st, gr, syn}:
+      blk.go(p, blk.one(Bg{st, gr, syn}, nch, tm), nch, u.add(tm, 2))
 
 # mono keeps the odd delay-line slots
 def qmf.mono(hop: Nat, dst: List<&2, F32>, got: La, +ii: U32) -> List<&2, F32>:
@@ -1322,13 +1357,15 @@ def syn.drop(gr: Array<F32>, st: Sb, +ov: List<&2, F32>, +qmf: List<&2, F32>, +n
 # run the polyphase and keep the overlap from the IMDCT
 def syn.out(got: Bg, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
   match got:
-    case Bg{st, gr}:
-      syn.drop(gr, st, ov, qmf, nch)
+    case Bg{st, gr, syn}:
+      match syn:
+        case _syn:
+          syn.drop(gr, st, ov, qmf, nch)
 
-# DCT-II then nine polyphase blocks
+# DCT-II then nine polyphase blocks. The window table stays an Array for every tap.
 def syn.pcm(+buf: List<&2, F32>, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
   syn.out(blk.go(9n, Bg{Sb{sy.lin(qmf), sy.pcm()}, sy.gr(sy.dct(U32.is_eq(nch, 1), buf,
-    Enc.f.of(Tab.tab.sec())))}, nch, Enc.f.of(Tab.tab.syn()), 0), ov, qmf, nch)
+    Enc.f.of(Tab.tab.sec()))), sw.tab()}, nch, 0), ov, qmf, nch)
 
 # synthesis of a prepared granule
 def syn.finish(st: Im, +qmf: List<&2, F32>, +nch: U32) -> Pc:
