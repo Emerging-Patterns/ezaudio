@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.1...v0.2.2) (2026-09-22)
+
+
+### Performance Improvements
+
+* keep the MP3 polyphase delay in an Array ([#17](https://github.com/Emerging-Patterns/ezaudio/issues/17)) ([124df33](https://github.com/Emerging-Patterns/ezaudio/commit/124df33eec3db5e314bb9d009ab972dc70a0cf87))
+
 ## [0.2.1](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.0...v0.2.1) (2026-09-22)
 
 
