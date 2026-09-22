@@ -1,0 +1,30 @@
+name: tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "X.Y.Z to tag (empty = version in flake.nix)"
+        required: false
+        type: string
+        default: ""
+      bump:
+        description: "none, patch, minor, or major"
+        required: false
+        type: choice
+        options:
+          - none
+          - patch
+          - minor
+          - major
+        default: none
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    uses: Emerging-Patterns/actions/.github/workflows/tag.yml@main
+    with:
+      version: ${{ inputs.version }}
+      bump: ${{ inputs.bump }}

@@ -1,0 +1,17 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  release-please:
+    uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@main
+    with:
+      config-file: .github/release-please-config.json
+      manifest-file: .github/release-please-manifest.json

@@ -1,0 +1,122 @@
+{
+  "nodes": {
+    "bend": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790013287,
+        "narHash": "sha256-Yr/1J0Wn0Q0xkmPwJk2eOyCrqMgOymZu1Np2FKoVRMQ=",
+        "owner": "bendlang",
+        "repo": "bend",
+        "rev": "a49524265bdfa5753a4bf38e25f0574a705dd868",
+        "type": "github"
+      },
+      "original": {
+        "owner": "bendlang",
+        "repo": "bend",
+        "type": "github"
+      }
+    },
+    "bolt": {
+      "inputs": {
+        "bend": [
+          "bend"
+        ],
+        "ez": "ez",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790029208,
+        "narHash": "sha256-H4wu9ivQFeBnvnXKT7O4QgjM6AHDH1A6IhFb6vqcKZU=",
+        "owner": "Emerging-Patterns",
+        "repo": "bolt",
+        "rev": "995adc90fe96c95c8f2604632305c644e5109ed2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Emerging-Patterns",
+        "repo": "bolt",
+        "type": "github"
+      }
+    },
+    "ez": {
+      "inputs": {
+        "bend": [
+          "bolt",
+          "bend"
+        ],
+        "nixpkgs": [
+          "bolt",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790028674,
+        "narHash": "sha256-0cSIKVwoxmsJIlk3BpRVoLzB0nPjqBq+asPZZ5k6sIM=",
+        "owner": "Emerging-Patterns",
+        "repo": "ez",
+        "rev": "62aa63305cde7294cc6a15b540d392adcda1d9a7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Emerging-Patterns",
+        "repo": "ez",
+        "type": "github"
+      }
+    },
+    "ez_2": {
+      "inputs": {
+        "bend": [
+          "bend"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790028674,
+        "narHash": "sha256-0cSIKVwoxmsJIlk3BpRVoLzB0nPjqBq+asPZZ5k6sIM=",
+        "owner": "Emerging-Patterns",
+        "repo": "ez",
+        "rev": "62aa63305cde7294cc6a15b540d392adcda1d9a7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Emerging-Patterns",
+        "repo": "ez",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1789921291,
+        "narHash": "sha256-Ft/BRnIqw1MywFoXydKobjjWmDFgDdYtSpJliE8+yUw=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "44a91898084f46797b5fac650c7e8c9ac38c43d4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "bend": "bend",
+        "bolt": "bolt",
+        "ez": "ez_2",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

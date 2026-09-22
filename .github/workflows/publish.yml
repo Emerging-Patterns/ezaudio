@@ -1,0 +1,15 @@
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish, e.g. v0.4.0"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    uses: Emerging-Patterns/actions/.github/workflows/publish.yml@main
+    with:
+      tag: ${{ inputs.tag }}
