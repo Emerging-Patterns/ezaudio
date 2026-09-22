@@ -1,0 +1,3 @@
+[package]
+name = "ezaudio"
+entry = "ezaudio/main.bend"

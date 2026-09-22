@@ -1,0 +1,6 @@
+result
+bin/
+.ez/
+.gate/
+*.gpu
+.claude/
