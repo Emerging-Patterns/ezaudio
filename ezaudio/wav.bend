@@ -312,7 +312,7 @@ def step.err.dec(
     case True{}:
       st.set(0, 4, tag, sz, 3, kind, ch, rate, [], frames)
 
-def step.err.keep(+phase: U32, st: St, +hd: U32) -> St:
+def step.err.keep(+_phase: U32, st: St, +hd: U32) -> St:
   match st:
     case St{phase, +left, tag, sz, _sn, kind, ch, rate, acc, frames}:
       step.err.dec(U32.is_eq(left, 1), phase, left, tag, sz, kind, ch, rate, hd <> acc, frames)

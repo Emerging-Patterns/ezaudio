@@ -10,9 +10,9 @@ type Format is Data:
   S16{}
   Flt{}
 
-# one clip. frames are interleaved. s16 lives in the low 16 bits.
+# one clip. pcm is interleaved. s16 lives in the low 16 bits.
 type Clip is Data:
-  Clip{rate: U32, channels: U32, format: Format, frames: List<&2, U32>}
+  Clip{hz: U32, nch: U32, fmt: Format, pcm: List<&2, U32>}
 
 # signed 16-bit little-endian PCM
 def s16() -> Format:
@@ -36,6 +36,11 @@ def fmt.of(+kind: U32) -> Format:
     case _:
       Flt{}
 
+def wav.clip(w: Wav.Wav) -> Clip:
+  match w:
+    case Wav.Wav{+rate, +channels, +kind, frames}:
+      Clip{rate, channels, fmt.of(kind), frames}
+
 def fmt.same(aa: Format, bb: Format) -> Bool:
   match aa bb:
     case S16{} S16{}:
@@ -54,26 +59,26 @@ def clip(+rate: U32, +channels: U32, format: Format, frames: List<&2, U32>) -> C
 # the sample rate, in hertz
 def rate(c: Clip) -> U32:
   match c:
-    case Clip{+rate, _channels, _format, _frames}:
-      rate
+    case Clip{+hz, _nch, _fmt, _pcm}:
+      hz
 
 # how many channels are interleaved
 def channels(c: Clip) -> U32:
   match c:
-    case Clip{_rate, +channels, _format, _frames}:
-      channels
+    case Clip{_hz, +nch, _fmt, _pcm}:
+      nch
 
 # s16 or f32
 def format(c: Clip) -> Format:
   match c:
-    case Clip{_rate, _channels, +format, _frames}:
-      format
+    case Clip{_hz, _nch, +fmt, _pcm}:
+      fmt
 
 # the interleaved frames
 def frames(c: Clip) -> List<&2, U32>:
   match c:
-    case Clip{_rate, _channels, _format, +frames}:
-      frames
+    case Clip{_hz, _nch, _fmt, +pcm}:
+      pcm
 
 def count.of(+channels: U32, +nsamples: U32) -> U32:
   match channels:
@@ -85,8 +90,8 @@ def count.of(+channels: U32, +nsamples: U32) -> U32:
 # how many frames. zero channels count as none.
 def count(c: Clip) -> U32:
   match c:
-    case Clip{_rate, +channels, _format, +frames}:
-      count.of(channels, U32.from_nat(List.length(&2, U32, frames)))
+    case Clip{_hz, +nch, _fmt, +pcm}:
+      count.of(nch, U32.from_nat(List.length(&2, U32, pcm)))
 
 # one sample, repeated across nframes frames
 def fill(+rate: U32, +channels: U32, format: Format, +sample: U32, +nframes: U32) -> Clip:
@@ -136,11 +141,11 @@ def trim.go(
 # frames [start, start + nframes). none when that span passes the end.
 def trim(c: Clip, +start: U32, +nframes: U32) -> Maybe<&2, Clip>:
   match c:
-    case Clip{+rate, +channels, format, +frames}:
-      trim.go(U32.is_le((start + nframes : U32), count.of(channels, U32.from_nat(List.length(&2, U32, frames)))),
-        rate, channels, format, frames, start, nframes)
+    case Clip{+hz, +nch, fmt, +pcm}:
+      trim.go(U32.is_le((start + nframes : U32), count.of(nch, U32.from_nat(List.length(&2, U32, pcm)))), hz, nch,
+        fmt, pcm, start, nframes)
 
-def eq3(ar: Bool, ac: Bool, af: Bool) -> Bool:
+def eq.all(ar: Bool, ac: Bool, af: Bool) -> Bool:
   match ar:
     case False{}:
       False{}
@@ -168,14 +173,14 @@ def concat.go(
 def concat.pair(+rate: U32, +channels: U32, +format: Format, left: List<&2, U32>, other: Clip) -> Maybe<&2, Clip>:
   match other:
     case Clip{+rb, +cb, fb, right}:
-      concat.go(eq3(U32.is_eq(rate, rb), U32.is_eq(channels, cb), fmt.same(format, fb)), rate, channels, format,
+      concat.go(eq.all(U32.is_eq(rate, rb), U32.is_eq(channels, cb), fmt.same(format, fb)), rate, channels, format,
         left, right)
 
 # the frames of both clips, or none when rate, channels, or format differ
 def concat(left: Clip, right: Clip) -> Maybe<&2, Clip>:
   match left:
-    case Clip{+rate, +channels, +format, frames}:
-      concat.pair(rate, channels, format, frames, right)
+    case Clip{+hz, +nch, +fmt, pcm}:
+      concat.pair(hz, nch, fmt, pcm, right)
 
 def list.empty(xs: List<&2, U32>) -> Bool:
   match xs:
@@ -191,11 +196,6 @@ def wav.bytes(empty: Bool, +rate: U32, +channels: U32, +kind: U32, frames: List<
     case False{}:
       Wav.wav.write(rate, channels, kind, frames)
 
-def wav.clip(w: Wav.Wav) -> Clip:
-  match w:
-    case Wav.Wav{+rate, +channels, +kind, frames}:
-      Clip{rate, channels, fmt.of(kind), frames}
-
 def wav.parsed(got: Maybe<&2, Wav.Wav>) -> Maybe<&2, Clip>:
   match got:
     case None{}:
@@ -210,8 +210,8 @@ def decode_wav(xs: List<&2, U32>) -> Maybe<&2, Clip>:
 # a RIFF WAVE file. none when there are no frames, or the rate or channels are unfit.
 def encode_wav(c: Clip) -> Maybe<&2, List<&2, U32>>:
   match c:
-    case Clip{+rate, +channels, format, +frames}:
-      wav.bytes(list.empty(frames), rate, channels, kind.of(format), frames)
+    case Clip{+hz, +nch, fmt, +pcm}:
+      wav.bytes(list.empty(pcm), hz, nch, kind.of(fmt), pcm)
 
 def mp3.clip(p: Mp3.Pcm) -> Clip:
   match p:
@@ -232,5 +232,5 @@ def decode_mp3(xs: List<&2, U32>) -> Maybe<&2, Clip>:
 # MPEG-1 Layer III at 320 kbit/s. rates are 32000, 44100, and 48000. none when unfit or empty.
 def encode_mp3(c: Clip) -> Maybe<&2, List<&2, U32>>:
   match c:
-    case Clip{+rate, +channels, format, frames}:
-      Mp3.mp3.encode(rate, channels, kind.of(format), frames)
+    case Clip{+hz, +nch, fmt, pcm}:
+      Mp3.mp3.encode(hz, nch, kind.of(fmt), pcm)

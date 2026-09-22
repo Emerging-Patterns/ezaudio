@@ -478,7 +478,7 @@ def walk.fr1(+buf: List<&2, U32>, +hz: U32, +ch: U32, lib: Dec.Lib) -> Wk:
 
 def walk.fr0(
   cold: Bool, +buf: List<&2, U32>, +hz0: U32, +ch0: U32, pcm0: List<&2, U32>, ov: List<&2, F32>,
-  qmf: List<&2, F32>, +fresh: U32, lib: Dec.Lib, +on: U32
+  qmf: List<&2, F32>, +fresh: U32, lib: Dec.Lib
 ) -> Wk:
   match cold:
     case True{}:
@@ -491,7 +491,7 @@ def walk.frame(
   +buf: List<&2, U32>, +hz: U32, +ch: U32, pcm: List<&2, U32>, ov: List<&2, F32>, qmf: List<&2, F32>,
   +fresh: U32, lib: Dec.Lib, +on: U32
 ) -> Wk:
-  walk.fr0(U32.is_eq(on, 0), buf, hz, ch, pcm, ov, qmf, fresh, lib, on)
+  walk.fr0(U32.is_eq(on, 0), buf, hz, ch, pcm, ov, qmf, fresh, lib)
 
 def walk.rd2(
   done: Bool, +hz: U32, +ch: U32, pcm: List<&2, U32>, ov: List<&2, F32>, qmf: List<&2, F32>,

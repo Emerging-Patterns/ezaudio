@@ -312,7 +312,7 @@ def sm.neg2(neg: Bool, +mag: U32, +gain: F32, +pows: List<&2, U32>, bits: List<&
 def sm.neg(+t: Tk, +mag: U32, +gain: F32, +pows: List<&2, U32>) -> Sm:
   sm.neg2(U32.is_eq(rd.u(t), 1), mag, gain, pows, rd.xs(t))
 
-def sm.extra(+t: Tk, +lsb: U32, +lin: U32, +gain: F32, +pows: List<&2, U32>) -> Sm:
+def sm.extra(+t: Tk, +lsb: U32, +gain: F32, +pows: List<&2, U32>) -> Sm:
   sm.neg(rd.n(rd.xs(t), 1), (lsb + rd.u(t) : U32), gain, pows)
 
 def sm.lin(use: Bool, bits: List<&2, U32>, +lin: U32, +lsb: U32, +gain: F32, +pows: List<&2, U32>) -> Sm:
@@ -320,7 +320,7 @@ def sm.lin(use: Bool, bits: List<&2, U32>, +lin: U32, +lsb: U32, +gain: F32, +po
     case False{}:
       sm.plain(U32.is_eq(lsb, 0), bits, lsb, gain, pows)
     case True{}:
-      sm.extra(rd.n(bits, lin), lsb, lin, gain, pows)
+      sm.extra(rd.n(bits, lin), lsb, gain, pows)
 
 def hf.sym(bits: List<&2, U32>, +leaf: U32, +lin: U32, +gain: F32, +pows: List<&2, U32>) -> Sm:
   sm.lin(U32.is_ne(lin, 0) && U32.is_eq((leaf .&. 15 : U32), 15), bits, lin, (leaf .&. 15 : U32), gain, pows)
@@ -437,8 +437,15 @@ def hs.tab(+reg: U32, +g: Gd) -> U32:
 def hs.put(spec: List<&2, F32>, +at: U32, +a: F32, +b: F32) -> List<&2, F32>:
   Enc.f.put(Enc.f.put(spec, at, a), (at + 1 : U32), b)
 
-def hs.open(reg: U32, bits: List<&2, U32>, spec: List<&2, F32>, +at: U32, +band: U32, +cnt: U32,
-  +g: Gd, +scf: List<&2, U32>) -> Hs:
+def hs.open(
+  reg: U32,
+  bits: List<&2, U32>,
+  spec: List<&2, F32>,
+  +at: U32,
+  +band: U32,
+  +cnt: U32,
+  +scf: List<&2, U32>
+) -> Hs:
   Hs{bits, spec, at, band, hs.w(band, scf), reg, cnt}
 
 def hs.flip(
@@ -447,9 +454,9 @@ def hs.flip(
 ) -> Hs:
   match reg:
     case 0:
-      hs.open(1, bits, spec, at, band, g.r1(g), g, scf)
+      hs.open(1, bits, spec, at, band, g.r1(g), scf)
     case _:
-      hs.open(2, bits, spec, at, band, 22, g, scf)
+      hs.open(2, bits, spec, at, band, 22, scf)
 
 def hs.region(
   endr: Bool, bits: List<&2, U32>, spec: List<&2, F32>, +at: U32, +band: U32, +reg: U32, +cnt: U32,
@@ -457,7 +464,7 @@ def hs.region(
 ) -> Hs:
   match endr:
     case False{}:
-      hs.open(reg, bits, spec, at, band, (cnt - 1 : U32), g, scf)
+      hs.open(reg, bits, spec, at, band, (cnt - 1 : U32), scf)
     case True{}:
       hs.flip(reg, bits, spec, at, band, g, scf)
 
@@ -505,7 +512,7 @@ def dec.full(+g: Gd, bits: List<&2, U32>, +lib: Lib) -> List<&2, F32>:
   match g:
     case Gd{_part, +big, +gain, _c, _t0, _t1, _t2, +r0, _r1, _pre, _sc, _c1, _block}:
       hs.spec(hs.go(U32.to_nat(big), g, Enc.gain.of(gain), lib,
-        hs.open(0, side.skip(bits, 59), List.replicate(F32, 576n, 0.0), 0, 0, r0, g, lib.scf(lib))))
+        hs.open(0, side.skip(bits, 59), List.replicate(F32, 576n, 0.0), 0, 0, r0, lib.scf(lib))))
 
 def dec.fold(xs: List<&2, F32>, +acc: U32) -> U32:
   match xs:
@@ -564,7 +571,7 @@ def dec.spec(+g: Gd, bits: List<&2, U32>, +lib: Lib) -> List<&2, F32>:
   match g:
     case Gd{_part, +big, +gain, _c, _t0, _t1, _t2, +r0, _r1, _pre, _sc, _c1, _block}:
       hs.spec(hs.go(U32.to_nat(big), g, Enc.gain.of(gain), lib,
-        hs.open(0, bits, List.replicate(F32, 576n, 0.0), 0, 0, r0, g, lib.scf(lib))))
+        hs.open(0, bits, List.replicate(F32, 576n, 0.0), 0, 0, r0, lib.scf(lib))))
 
 # drop a prefix of a byte list
 def bd.drop(hop: Nat, xs: List<&2, U32>) -> List<&2, U32>:
@@ -673,16 +680,23 @@ def gr.n(+nch: U32) -> Nat:
 type Chs is Data:
   Chs{spec: List<&2, F32>, bits: List<&2, U32>, gs: List<&2, Gd>}
 
+def chs.push(xs: List<&2, F32>, acc: List<&2, F32>) -> List<&2, F32>:
+  match xs:
+    case Nil{}:
+      acc
+    case +hd <> tl:
+      chs.push(tl, hd <> acc)
+
 def chs.go(
   hop: Nat, gs: List<&2, Gd>, +bits: List<&2, U32>, +lib: Lib, spec: List<&2, F32>
 ) -> Chs:
   match hop gs:
     case 0n ys:
-      Chs{spec, bits, ys}
+      Chs{List.reverse(&2, F32, spec), bits, ys}
     case _ Nil{}:
-      Chs{spec, bits, []}
+      Chs{List.reverse(&2, F32, spec), bits, []}
     case 1n+p +hd <> tl:
-      chs.go(p, tl, side.skip(bits, g.part(hd)), lib, List.append(&2, F32, spec, dec.spec(hd, bits, lib)))
+      chs.go(p, tl, side.skip(bits, g.part(hd)), lib, chs.push(dec.spec(hd, bits, lib), spec))
 
 # PCM words, overlap, delay, and the unread side of the frame
 type Gr is Data:

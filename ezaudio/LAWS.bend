@@ -36,7 +36,7 @@ def head.of(got: Maybe<&2, List<&2, U32>>) -> List<&2, U32>:
 def len.of(got: Maybe<&2, List<&2, U32>>) -> U32:
   U32.from_nat(List.length(&2, U32, bytes.of(got)))
 
-def zf32(+n: U32) -> List<&2, U32>:
+def pcm.z(+n: U32) -> List<&2, U32>:
   List.replicate(U32, U32.to_nat(n), 0)
 
 # LAW: a clip keeps the rate it was built with
@@ -212,7 +212,7 @@ law mp3_silence_len:
 # LAW: ISO/IEC 11172-3 — decoding that frame is 1152 zero binary32 samples
 law mp3_silence_pcm:
   {Au.decode_mp3(bytes.of(Au.encode_mp3(Au.clip(44100, 1, Au.s16(), [0]))))
-    == Some{Au.clip(44100, 1, Au.f32(), zf32(1152))} : Maybe<&2, Au.Clip>}
+    == Some{Au.clip(44100, 1, Au.f32(), pcm.z(1152))} : Maybe<&2, Au.Clip>}
 
 # LAW: ISO/IEC 11172-3 — stereo silence opens FF FB E0 04
 law mp3_stereo_head:
@@ -221,7 +221,7 @@ law mp3_stereo_head:
 # LAW: ISO/IEC 11172-3 — decoding that frame is 1152 zero samples on each channel
 law mp3_stereo_pcm:
   {Au.decode_mp3(bytes.of(Au.encode_mp3(Au.clip(44100, 2, Au.s16(), [0, 0]))))
-    == Some{Au.clip(44100, 2, Au.f32(), zf32(2304))} : Maybe<&2, Au.Clip>}
+    == Some{Au.clip(44100, 2, Au.f32(), pcm.z(2304))} : Maybe<&2, Au.Clip>}
 
 # LAW: ISO/IEC 11172-3 — 48000 Hz sets the sampling-frequency index to 1
 law mp3_hz48:

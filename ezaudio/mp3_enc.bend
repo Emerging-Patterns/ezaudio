@@ -285,20 +285,16 @@ def bv.put(ix: List<&2, U32>, +last: U32, +acc: U32, hit: Bool) -> Bv:
     case False{}:
       Bv{ix, last, acc}
 
-def bv.got(
-  ix: List<&2, U32>, +last: U32, +acc: U32, +hz: U32, +width: U32, hit: Bool
-) -> Bv:
+def bv.got(ix: List<&2, U32>, +last: U32, +acc: U32, +width: U32, hit: Bool) -> Bv:
   bv.put(drop.u(U32.to_nat(width), ix), last, (acc + U32.div(width, 2) : U32), hit)
 
-def bv.band(
-  +ix: List<&2, U32>, +last: U32, +acc: U32, +hz: U32, +band: U32, +width: U32
-) -> Bv:
-  bv.got(ix, last, acc, hz, width, nz.n(U32.to_nat(width), ix))
+def bv.band(+ix: List<&2, U32>, +last: U32, +acc: U32, +width: U32) -> Bv:
+  bv.got(ix, last, acc, width, nz.n(U32.to_nat(width), ix))
 
 def bv.at(st: Bv, +hz: U32, +band: U32) -> Bv:
   match st:
     case Bv{+ix, last, +acc}:
-      bv.band(ix, last, acc, hz, band, scf.at(hz, band))
+      bv.band(ix, last, acc, scf.at(hz, band))
 
 def bv.go(hop: Nat, st: Bv, +hz: U32, +band: U32) -> Bv:
   match hop:
