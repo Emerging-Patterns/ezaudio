@@ -578,13 +578,6 @@ def ln.fill(xs: List<&2, F32>, a: Array<F32>, +ii: U32) -> Array<F32>:
     case +hd <> tl:
       ln.fill(tl, Array.set(F32, a, ii, hd), u.add(ii, 1))
 
-def ln.zero(hop: Nat, a: Array<F32>, +ii: U32) -> Array<F32>:
-  match hop:
-    case 0n:
-      a
-    case 1n+p:
-      ln.zero(p, Array.set(F32, a, ii, 0.0), u.add(ii, 1))
-
 # four running polyphase sums, a and b
 type Mac is Data:
   Mac{aa: List<&2, F32>, bb: List<&2, F32>}
@@ -1170,9 +1163,9 @@ def sy.dct(mono: Bool, +buf: List<&2, F32>, +sec: List<&2, F32>) -> List<&2, F32
       List.append(&2, F32, dc.run(18n, ls.slice(buf, 0, 576n), sec, 0),
         dc.run(18n, ls.slice(buf, 576, 576n), sec, 0))
 
-# delay line: the carried tail, then 1152 zeros (4096-slot Array)
+# delay line: the carried tail, then zeros (4096-slot Array starts at 0.0)
 def sy.lin(+qmf: List<&2, F32>) -> Array<F32>:
-  ln.zero(1152n, ln.fill(qmf, Array.new(F32, 12n, 0.0), 0), 960)
+  ln.fill(qmf, Array.new(F32, 12n, 0.0), 0)
 
 # empty PCM for one granule
 def sy.pcm(+nch: U32) -> List<&2, F32>:
