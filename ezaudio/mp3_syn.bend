@@ -578,6 +578,20 @@ def ln.fill(xs: List<&2, F32>, a: Array<F32>, +ii: U32) -> Array<F32>:
     case +hd <> tl:
       ln.fill(tl, Array.set(F32, a, ii, hd), u.add(ii, 1))
 
+# pull one sample into an accumulator; hop is remaining after this read
+def ln.pull(hop: Nat, got: La, +ii: U32, acc: List<&2, F32>) -> List<&2, F32>:
+  match hop got:
+    case 0n La{lin, +cur}:
+      match lin:
+        case _l:
+          List.reverse(&2, F32, cur <> acc)
+    case 1n+p La{lin, +cur}:
+      ln.pull(p, ln.at(lin, u.add(ii, 1)), u.add(ii, 1), cur <> acc)
+
+# first hop+1 slots of an Array as a list
+def ln.list(a: Array<F32>, hop: Nat) -> List<&2, F32>:
+  ln.pull(hop, ln.at(a, 0), 0, [])
+
 # four running polyphase sums, a and b
 type Mac is Data:
   Mac{aa: List<&2, F32>, bb: List<&2, F32>}
@@ -690,9 +704,9 @@ def mac.sc(+vv: F32) -> F32:
 
 # write the eight samples this row produces
 def mac.p8(
-  pcm: List<&2, F32>, +aa: List<&2, F32>, +bb: List<&2, F32>, +nch: U32, +pcmi: U32, +ii: U32
-) -> List<&2, F32>:
-  f.set(f.set(f.set(f.set(f.set(f.set(f.set(f.set(pcm,
+  pcm: Array<F32>, +aa: List<&2, F32>, +bb: List<&2, F32>, +nch: U32, +pcmi: U32, +ii: U32
+) -> Array<F32>:
+  ln.set(ln.set(ln.set(ln.set(ln.set(ln.set(ln.set(ln.set(pcm,
     u.add(pcmi, u.add(u.mul(u.sub(15, ii), nch), u.sub(nch, 1))), mac.sc(f.at(aa, 1))),
     u.add(pcmi, u.add(u.mul(u.add(17, ii), nch), u.sub(nch, 1))), mac.sc(f.at(bb, 1))),
     u.add(pcmi, u.mul(u.sub(15, ii), nch)), mac.sc(f.at(aa, 0))),
@@ -703,7 +717,7 @@ def mac.p8(
     u.add(pcmi, u.mul(u.add(49, ii), nch)), mac.sc(f.at(bb, 2)))
 
 # store the row
-def mac.put(pcm: List<&2, F32>, st: Mac, +nch: U32, +pcmi: U32, +ii: U32) -> List<&2, F32>:
+def mac.put(pcm: Array<F32>, st: Mac, +nch: U32, +pcmi: U32, +ii: U32) -> Array<F32>:
   match st:
     case Mac{+aa, +bb}:
       mac.p8(pcm, aa, bb, nch, pcmi, ii)
@@ -993,18 +1007,18 @@ def sp.a2(lin: Array<F32>, +zz: U32) -> La:
 
 # PCM and delay line while pairing synth samples
 type Pp is Type:
-  Pp{pcm: List<&2, F32>, lin: Array<F32>}
+  Pp{pcm: Array<F32>, lin: Array<F32>}
 
 # one synth pair: two scaled samples
-def sp.pair2(g2: La, pcm: List<&2, F32>, +pcmi: U32, +nch: U32) -> Pp:
+def sp.pair2(g2: La, pcm: Array<F32>, +pcmi: U32, +nch: U32) -> Pp:
   match g2:
     case La{lin2, v2}:
-      Pp{f.set(pcm, u.add(pcmi, u.mul(16, nch)), mac.sc(v2)), lin2}
+      Pp{ln.set(pcm, u.add(pcmi, u.mul(16, nch)), mac.sc(v2)), lin2}
 
-def sp.pair1(g1: La, pcm: List<&2, F32>, +pcmi: U32, +nch: U32, +zz: U32) -> Pp:
+def sp.pair1(g1: La, pcm: Array<F32>, +pcmi: U32, +nch: U32, +zz: U32) -> Pp:
   match g1:
     case La{lin1, v1}:
-      sp.pair2(sp.a2(lin1, zz), f.set(pcm, pcmi, mac.sc(v1)), pcmi, nch)
+      sp.pair2(sp.a2(lin1, zz), ln.set(pcm, pcmi, mac.sc(v1)), pcmi, nch)
 
 def sp.pair(st: Pp, +pcmi: U32, +nch: U32, +zz: U32) -> Pp:
   match st:
@@ -1019,7 +1033,7 @@ def blk.pairs(st: Pp, +nch: U32, +pcmi: U32, +z0: U32) -> Pp:
 
 # delay line and the PCM written so far
 type Sb is Type:
-  Sb{lin: Array<F32>, pcm: List<&2, F32>}
+  Sb{lin: Array<F32>, pcm: Array<F32>}
 
 def blk.armed1(got: Pp) -> Sb:
   match got:
@@ -1027,7 +1041,7 @@ def blk.armed1(got: Pp) -> Sb:
       Sb{lin2, pcm2}
 
 # pairs read the delay line the preamble just wrote
-def blk.armed(lin: Array<F32>, pcm: List<&2, F32>, +nch: U32, +tm: U32) -> Sb:
+def blk.armed(lin: Array<F32>, pcm: Array<F32>, +nch: U32, +tm: U32) -> Sb:
   blk.armed1(blk.pairs(Pp{pcm, lin}, nch, u.mul(u.mul(32, nch), tm), u.add(u.mul(tm, 64), 60)))
 
 # open a block: preamble, then the four pairs
@@ -1036,14 +1050,14 @@ def blk.arm(st: Sb, +gr: List<&2, F32>, +nch: U32, +tm: U32) -> Sb:
     case Sb{lin, pcm}:
       blk.armed(blk.pre(lin, gr, nch, u.add(u.mul(tm, 64), 960), tm), pcm, nch, tm)
 
-def blk.row1(got: Mk, pcm: List<&2, F32>, +nch: U32, +tm: U32, +ii: U32) -> Sb:
+def blk.row1(got: Mk, pcm: Array<F32>, +nch: U32, +tm: U32, +ii: U32) -> Sb:
   match got:
     case Mk{st, lin2}:
       Sb{lin2, mac.put(pcm, st, nch, u.mul(u.mul(32, nch), tm), ii)}
 
 # window the row just written
 def blk.row(
-  lin: Array<F32>, pcm: List<&2, F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
+  lin: Array<F32>, pcm: Array<F32>, +nch: U32, +syn: List<&2, F32>, +tm: U32, +ii: U32
 ) -> Sb:
   blk.row1(mac.k(8n, Mk{mac.z(), lin}, syn, u.add(u.mul(tm, 64), 960), ii, 0), pcm, nch, tm, ii)
 
@@ -1167,19 +1181,23 @@ def sy.dct(mono: Bool, +buf: List<&2, F32>, +sec: List<&2, F32>) -> List<&2, F32
 def sy.lin(+qmf: List<&2, F32>) -> Array<F32>:
   ln.fill(qmf, Array.new(F32, 12n, 0.0), 0)
 
-# empty PCM for one granule
-def sy.pcm(+nch: U32) -> List<&2, F32>:
-  List.replicate(F32, U32.to_nat(u.mul(576, nch)), 0.0)
+# empty PCM for one granule (2048-slot Array covers mono 576 and stereo 1152)
+def sy.pcm() -> Array<F32>:
+  Array.new(F32, 11n, 0.0)
+
+# PCM Array back to a list of length 576*nch
+def sy.pcm.list(+nch: U32, pcm: Array<F32>) -> List<&2, F32>:
+  ln.list(pcm, U32.to_nat(u.sub(u.mul(576, nch), 1)))
 
 # run the polyphase and keep the overlap from the IMDCT
 def syn.out(st: Sb, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
   match st:
     case Sb{lin, pcm}:
-      Pc{pcm, ov, qmf.save(lin, qmf, nch)}
+      Pc{sy.pcm.list(nch, pcm), ov, qmf.save(lin, qmf, nch)}
 
 # DCT-II then nine polyphase blocks
 def syn.pcm(+buf: List<&2, F32>, +ov: List<&2, F32>, +qmf: List<&2, F32>, +nch: U32) -> Pc:
-  syn.out(blk.go(9n, Sb{sy.lin(qmf), sy.pcm(nch)}, sy.dct(U32.is_eq(nch, 1), buf, Enc.f.of(Tab.tab.sec())),
+  syn.out(blk.go(9n, Sb{sy.lin(qmf), sy.pcm()}, sy.dct(U32.is_eq(nch, 1), buf, Enc.f.of(Tab.tab.sec())),
     nch, Enc.f.of(Tab.tab.syn()), 0), ov, qmf, nch)
 
 # synthesis of a prepared granule
