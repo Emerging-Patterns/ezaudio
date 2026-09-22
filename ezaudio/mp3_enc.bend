@@ -391,46 +391,6 @@ def hp.field(hop: Nat, hp: Hp, +code: U32, +left: U32) -> Hp:
       hp.field(p, hp.bit(hp, ((code >> U32.to_nat((left - 1 : U32)) : U32) .&. 1 : U32)), code,
         (left - 1 : U32))
 
-# a split of a code list: the next 512 words, and what remains
-type Cut is Data:
-  Cut{got: List<&2, U32>, rest: List<&2, U32>}
-
-def cut.go(hop: Nat, xs: List<&2, U32>, acc: List<&2, U32>) -> Cut:
-  match hop xs:
-    case 0n ys:
-      Cut{List.reverse(&2, U32, acc), ys}
-    case _ Nil{}:
-      Cut{List.reverse(&2, U32, acc), []}
-    case 1n+p +hd <> tl:
-      cut.go(p, tl, hd <> acc)
-
-def cut.rest(c: Cut) -> List<&2, U32>:
-  match c:
-    case Cut{_got, rest}:
-      rest
-
-def cut.got(c: Cut) -> List<&2, U32>:
-  match c:
-    case Cut{got, _rest}:
-      got
-
-def chunks.go(hop: Nat, +xs: List<&2, U32>, acc: List<&2, List<&2, U32>>) -> List<&2, List<&2, U32>>:
-  match hop:
-    case 0n:
-      List.reverse(&2, List<&2, U32>, acc)
-    case 1n+p:
-      chunks.go(p, cut.rest(cut.go(512n, xs, [])), cut.got(cut.go(512n, xs, [])) <> acc)
-
-def chunk.m(m: Maybe<&2, List<&2, U32>>) -> List<&2, U32>:
-  match m:
-    case None{}:
-      []
-    case Some{xs}:
-      xs
-
-def codes.at(+book: List<&2, List<&2, U32>>, +ix: U32) -> U32:
-  u.nth(chunk.m(List.get(&2, List<&2, U32>, book, U32.to_nat((ix >> 9n : U32)))), (ix .&. 511 : U32))
-
 def lim.p(z: Bool, +lin: U32) -> U32:
   match z:
     case True{}:
@@ -488,8 +448,17 @@ def hp.bad(z: Bool, hp: Hp) -> Hp:
     case False{}:
       hp
 
-def word.of(+codes: List<&2, List<&2, U32>>, +tab: U32, +ca: U32, +cb: U32) -> U32:
-  codes.at(codes, (((tab * 256 : U32) + (ca * 16 : U32) : U32) + cb : U32))
+# a Huffman word handed back beside the Array.get just read
+type Wd is Type:
+  Wd{tab: Array<U32>, w: U32}
+
+def wd.of(got: Array<U32> & U32) -> Wd:
+  (tab, w) = got
+  Wd{tab, w}
+
+# tab.code is 8192 words. Each pair reads that table with Array.get.
+def word.of(codes: Array<U32>, +tab: U32, +ca: U32, +cb: U32) -> Array<U32> & U32:
+  Array.get(U32, codes, (((tab * 256 : U32) + (ca * 16 : U32) : U32) + cb : U32))
 
 def hp.use(z: Bool, hp: Hp, +w: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32) -> Hp:
   match z:
@@ -502,24 +471,41 @@ def hp.use(z: Bool, hp: Hp, +w: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +li
 def hp.word(hp: Hp, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32, +w: U32) -> Hp:
   hp.bad(hp.over(aa, bb, lin), hp.use(U32.is_eq((w >> 16n : U32), 0), hp, w, av, bv, aa, bb, lin))
 
-def hp.ready(
-  hp: Hp, +tab: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32, +codes: List<&2, List<&2, U32>>
-) -> Hp:
-  hp.word(hp, av, bv, aa, bb, lin, word.of(codes, tab, ca.of(lin, aa), ca.of(lin, bb)))
+def hp.from(
+  got: Wd, hp: Hp, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32
+) -> Array<U32> & Hp:
+  match got:
+    case Wd{tab, +w}:
+      (tab, hp.word(hp, av, bv, aa, bb, lin, w))
 
-def hp.pair(hp: Hp, +tab: U32, +av: U32, +bv: U32, +codes: List<&2, List<&2, U32>>, +lins: List<&2, U32>) -> Hp:
+def hp.ready(
+  hp: Hp, +tab: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32, codes: Array<U32>
+) -> Array<U32> & Hp:
+  hp.from(wd.of(word.of(codes, tab, ca.of(lin, aa), ca.of(lin, bb))), hp, av, bv, aa, bb, lin)
+
+def hp.pair(
+  hp: Hp, +tab: U32, +av: U32, +bv: U32, codes: Array<U32>, +lins: List<&2, U32>
+) -> Array<U32> & Hp:
   hp.ready(hp, tab, av, bv, i.abs(av), i.abs(bv), u.nth(lins, tab), codes)
 
+# the code table beside the bits just produced for one pair
+type Hs is Type:
+  Hs{tab: Array<U32>, hp: Hp}
+
+def hs.of(got: Array<U32> & Hp) -> Hs:
+  (tab, hp) = got
+  Hs{tab, hp}
+
 def hp.pairs(
-  xs: List<&2, U32>, hp: Hp, +tab: U32, +codes: List<&2, List<&2, U32>>, +lins: List<&2, U32>
-) -> Hp:
-  match xs:
-    case Nil{}:
-      hp
-    case +aa <> +bb <> tl:
-      hp.pairs(tl, hp.pair(hp, tab, aa, bb, codes, lins), tab, codes, lins)
-    case _:
-      Hp{[], 0}
+  xs: List<&2, U32>, got: Hs, +tab: U32, +lins: List<&2, U32>
+) -> Array<U32> & Hp:
+  match xs got:
+    case Nil{} Hs{codes, hp}:
+      (codes, hp)
+    case +aa <> +bb <> tl Hs{codes, hp}:
+      hp.pairs(tl, hs.of(hp.pair(hp, tab, aa, bb, codes, lins)), tab, lins)
+    case _ Hs{codes, _hp}:
+      (codes, Hp{[], 0})
 
 def hp.len(hp: Hp) -> U32:
   match hp:
@@ -571,27 +557,56 @@ def best.got(b: Best, +tab: U32, hp: Hp) -> Best:
     case Hp{+bits, ok}:
       best.from(b, tab, ok, bits)
 
+def best.pull(b: Best, +tab: U32, got: Hs) -> Array<U32> & Best:
+  match got:
+    case Hs{codes, hp}:
+      (codes, best.got(b, tab, hp))
+
 def best.one(
-  b: Best, +tab: U32, ix: List<&2, U32>, +codes: List<&2, List<&2, U32>>, +lins: List<&2, U32>
-) -> Best:
-  best.got(b, tab, hp.pairs(ix, Hp{[], 1}, tab, codes, lins))
+  b: Best, +tab: U32, ix: List<&2, U32>, codes: Array<U32>, +lins: List<&2, U32>
+) -> Array<U32> & Best:
+  best.pull(b, tab, hs.of(hp.pairs(ix, Hs{codes, Hp{[], 1}}, tab, lins)))
 
 def best.step(
-  b: Best, +tab: U32, +ix: List<&2, U32>, +codes: List<&2, List<&2, U32>>, +lins: List<&2, U32>
-) -> Best:
+  b: Best, +tab: U32, +ix: List<&2, U32>, codes: Array<U32>, +lins: List<&2, U32>
+) -> Array<U32> & Best:
   best.one(b, tab, ix, codes, lins)
 
+# the code table beside the shortest table so far
+type Bs is Type:
+  Bs{tab: Array<U32>, best: Best}
+
+def bs.of(got: Array<U32> & Best) -> Bs:
+  (tab, best) = got
+  Bs{tab, best}
+
 def best.go(
-  cs: List<&2, U32>, +ix: List<&2, U32>, b: Best, +codes: List<&2, List<&2, U32>>, +lins: List<&2, U32>
-) -> Best:
-  match cs:
+  cs: List<&2, U32>, +ix: List<&2, U32>, got: Bs, +lins: List<&2, U32>
+) -> Array<U32> & Best:
+  match cs got:
+    case Nil{} Bs{codes, won}:
+      (codes, won)
+    case +hd <> tl Bs{codes, won}:
+      best.go(tl, ix, bs.of(best.step(won, hd, ix, codes, lins)), lins)
+
+def code.put(xs: List<&2, U32>, a: Array<U32>, +ii: U32) -> Array<U32>:
+  match xs:
     case Nil{}:
-      b
+      a
     case +hd <> tl:
-      best.go(tl, ix, best.step(b, hd, ix, codes, lins), codes, lins)
+      code.put(tl, Array.set(U32, a, ii, hd), (ii + 1 : U32))
+
+# 2^13 slots: tab.code is 8192 words, filled in list order.
+def code.of() -> Array<U32>:
+  code.put(Tab.tab.code(), Array.new(U32, 13n, 0), 0)
+
+def best.fin(got: Bs) -> Best:
+  match got:
+    case Bs{_tab, best}:
+      best
 
 def best.of(ix: List<&2, U32>) -> Best:
-  best.go(hp.cands(), ix, Best{0, 0, [], 0}, chunks.go(16n, Tab.tab.code(), []), Tab.tab.lin())
+  best.fin(bs.of(best.go(hp.cands(), ix, Bs{code.of(), Best{0, 0, [], 0}}, Tab.tab.lin())))
 
 def ix.p(z: Bool, +mm: U32, +aa: U32) -> U32:
   match z:
