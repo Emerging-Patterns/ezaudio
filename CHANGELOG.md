@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.0...v0.2.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* make wave bench speed ratios apples-to-apples ([#14](https://github.com/Emerging-Patterns/ezaudio/issues/14)) ([e88ef4e](https://github.com/Emerging-Patterns/ezaudio/commit/e88ef4ef7e539dfd2caf42d5573f26f1a52638f4))
+
+
+### Performance Improvements
+
+* dedupe MP3 Enc.enc.run work in proofs ([#13](https://github.com/Emerging-Patterns/ezaudio/issues/13)) ([7388275](https://github.com/Emerging-Patterns/ezaudio/commit/738827528dfec136984247ed274370ea8a511dfd))
+
 ## [0.2.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.1.0...v0.2.0) (2026-09-22)
 
 
