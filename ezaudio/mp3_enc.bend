@@ -1067,6 +1067,32 @@ def pk.one(+gs: List<&2, Gr>, +hz: U32, +ch: U32) -> List<&2, U32>:
   pk.fit(List.append(&2, U32, pk.hdr(hz, ch), side.bytes(gs, ch)), bw.bytes(body.grs(gs, bw.empty())),
     pk.fsz(hz))
 
+# one Huffman pair (mag, 0) in the first granule. global_gain stays 0.
+def pulse.gr(b: Best) -> Gr:
+  match b:
+    case Best{+tab, _nn, bits, +ok}:
+      gr.u(U32.is_eq(ok, 1), 0, tab, bits, 1)
+
+def pulse.clamp(small: Bool, +w: U32) -> U32:
+  match small:
+    case True{}:
+      w
+    case False{}:
+      15
+
+def pulse.mag0(z: Bool, +w: U32) -> U32:
+  match z:
+    case True{}:
+      1
+    case False{}:
+      pulse.clamp(U32.is_lt(w, 16), w)
+
+def pulse.mag(+w: U32) -> U32:
+  pulse.mag0(U32.is_eq(w, 0), w)
+
+def pulse.frame(+hz: U32, +mag: U32) -> List<&2, U32>:
+  pk.one([pulse.gr(best.of([mag, 0])), Gr{0, 0, 0, 0, []}], hz, 1)
+
 def pk.chan(
   specs: List<&2, List<&2, F32>>, +hz: U32, +bud: U32, acc: List<&2, Gr>
 ) -> List<&2, Gr>:

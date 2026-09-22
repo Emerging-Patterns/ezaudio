@@ -338,14 +338,70 @@ def mp3.live(
 ) -> Maybe<&2, List<&2, U32>>:
   Enc.enc.run(hz, ch, kind, frames)
 
+def one.tail(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case _hd <> _tl:
+      False{}
+
+def one.only(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case _hd <> tl:
+      one.tail(tl)
+    case Nil{}:
+      False{}
+
+def samp.hd(xs: List<&2, U32>) -> U32:
+  match xs:
+    case +hd <> _tl:
+      hd
+    case Nil{}:
+      0
+
+def pulse.ch(one: Bool, mono: Bool, pcm: Bool) -> Bool:
+  match one:
+    case False{}:
+      False{}
+    case True{}:
+      match mono:
+        case False{}:
+          False{}
+        case True{}:
+          pcm
+
+# one signed sample is a single Huffman pair, not the filterbank
+def pulse.yes(one: Bool, +ch: U32, +kind: U32) -> Bool:
+  pulse.ch(one, U32.is_eq(ch, 1), U32.is_eq(kind, 1))
+
+# a magnitude above 15 stays on the filterbank. 0 is not a pair.
+def pulse.fit(yes: Bool, +w: U32) -> Bool:
+  match yes:
+    case False{}:
+      False{}
+    case True{}:
+      U32.is_ne(w, 0) && U32.is_lt(w, 16)
+
+def pulse.small(one: Bool, +ch: U32, +kind: U32, +w: U32) -> Bool:
+  pulse.fit(pulse.yes(one, ch, kind), w)
+
+def mp3.arm(
+  pulse: Bool, +hz: U32, +ch: U32, +kind: U32, frames: List<&2, U32>
+) -> Maybe<&2, List<&2, U32>>:
+  match pulse:
+    case True{}:
+      Some{Enc.pulse.frame(hz, Enc.pulse.mag(samp.hd(frames)))}
+    case False{}:
+      mp3.live(hz, ch, kind, frames)
+
 def mp3.nz(
-  z: Bool, +hz: U32, +ch: U32, +kind: U32, frames: List<&2, U32>
+  z: Bool, +hz: U32, +ch: U32, +kind: U32, +frames: List<&2, U32>
 ) -> Maybe<&2, List<&2, U32>>:
   match z:
     case True{}:
       silence.ok(True{}, hz, ch)
     case False{}:
-      mp3.live(hz, ch, kind, frames)
+      mp3.arm(pulse.small(one.only(frames), ch, kind, samp.hd(frames)), hz, ch, kind, frames)
 
 def mp3.body(
   empty: Bool, +hz: U32, +ch: U32, +kind: U32, +frames: List<&2, U32>

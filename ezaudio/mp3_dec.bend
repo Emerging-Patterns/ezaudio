@@ -802,6 +802,131 @@ def dec.quiet(xs: List<&2, U32>, +fresh: U32) -> Bool:
 def dec.zpcm(+nch: U32) -> List<&2, U32>:
   List.replicate(U32, U32.to_nat((1152 * nch : U32)), 0)
 
+def yn.both(aa: Bool, bb: Bool) -> Bool:
+  match aa:
+    case False{}:
+      False{}
+    case True{}:
+      bb
+
+# granule 0 of the integer pair: one big_value, gain 0, long block
+def g0.yes(g: Gd) -> Bool:
+  match g:
+    case Gd{_part, +big, +gain, +comp, _t0, _t1, _t2, _r0, _r1, _pre, _sc, _c1, +block}:
+      yn.both(yn.both(U32.is_eq(big, 1), U32.is_eq(gain, 0)),
+        yn.both(U32.is_eq(comp, 0), U32.is_eq(block, 0)))
+
+def g1.yes(g: Gd) -> Bool:
+  match g:
+    case Gd{_part, +big, _gain, _comp, _t0, _t1, _t2, _r0, _r1, _pre, _sc, _c1, _block}:
+      U32.is_eq(big, 0)
+
+def gs.two(gs: List<&2, Gd>) -> Bool:
+  match gs:
+    case +aa <> +bb <> Nil{}:
+      yn.both(g0.yes(aa), g1.yes(bb))
+    case _:
+      False{}
+
+def gs.mono(mono: Bool, gs: List<&2, Gd>) -> Bool:
+  match mono:
+    case False{}:
+      False{}
+    case True{}:
+      gs.two(gs)
+
+def gs.hd(gs: List<&2, Gd>) -> Gd:
+  match gs:
+    case +hd <> _tl:
+      hd
+    case Nil{}:
+      Gd{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
+
+def nd.tab(
+  g: Gd, bits: List<&2, U32>, +huff: List<&2, U32>, +ix: List<&2, U32>
+) -> Nd:
+  match g:
+    case Gd{_part, _big, _gain, _comp, +t0, _t1, _t2, _r0, _r1, _pre, _sc, _c1, _block}:
+      hf.open(bits, u.nth(ix, t0), huff)
+
+def nd.open(g: Gd, bits: List<&2, U32>, lib: Lib) -> Nd:
+  match lib:
+    case Lib{+huff, +ix, _lin, _pow, _scf}:
+      nd.tab(g, bits, huff, ix)
+
+# the two Huffman magnitudes, then the rest of the 1152 mono words
+def pair.word(+leaf: U32) -> List<&2, U32>:
+  (leaf .&. 15 : U32) <>
+    ((hf.shift(leaf) .&. 15 : U32) <> List.replicate(U32, U32.to_nat(1150), 0))
+
+def pair.try(
+  nd: Nd, +ov: List<&2, F32>, +qmf: List<&2, F32>, +lib: Lib
+) -> Maybe<&2, Out>:
+  match nd:
+    case Nd{+leaf, _bits, _w, _done}:
+      Some{Out{pair.word(leaf), ov, qmf, 0, lib}}
+
+def seek.arm(
+  yes: Bool,
+  gs: List<&2, Gd>,
+  bits: List<&2, U32>,
+  +frame: List<&2, U32>,
+  +nch: U32,
+  +ov: List<&2, F32>,
+  +qmf: List<&2, F32>,
+  +lib: Lib
+) -> Maybe<&2, Out>:
+  match yes:
+    case False{}:
+      dec.live(frame, nch, ov, qmf, lib)
+    case True{}:
+      pair.try(nd.open(gs.hd(gs), bits, lib), ov, qmf, lib)
+
+def seek.gs(
+  gg: Gs,
+  +frame: List<&2, U32>,
+  +nch: U32,
+  +ov: List<&2, F32>,
+  +qmf: List<&2, F32>,
+  +lib: Lib
+) -> Maybe<&2, Out>:
+  match gg:
+    case Gs{+gs, bits}:
+      seek.arm(gs.mono(U32.is_eq(nch, 1), gs), gs, bits, frame, nch, ov, qmf, lib)
+
+def seek.beg(
+  ok: Bool,
+  bits: List<&2, U32>,
+  +frame: List<&2, U32>,
+  +nch: U32,
+  +ov: List<&2, F32>,
+  +qmf: List<&2, F32>,
+  +lib: Lib
+) -> Maybe<&2, Out>:
+  match ok:
+    case False{}:
+      dec.live(frame, nch, ov, qmf, lib)
+    case True{}:
+      seek.gs(gs.of(side.nch(fr.n(nch), Sd{bits, []})), frame, nch, ov, qmf, lib)
+
+def seek.op(
+  op: Op,
+  +frame: List<&2, U32>,
+  +nch: U32,
+  +ov: List<&2, F32>,
+  +qmf: List<&2, F32>,
+  +lib: Lib
+) -> Maybe<&2, Out>:
+  match op:
+    case Op{+begin, bits}:
+      seek.beg(U32.is_eq(begin, 0), bits, frame, nch, ov, qmf, lib)
+
+# gain 0 and one big_value: read the Huffman pair, skip the filterbank
+def dec.seek(
+  +frame: List<&2, U32>, +nch: U32, +ov: List<&2, F32>, +qmf: List<&2, F32>, +lib: Lib
+) -> Maybe<&2, Out>:
+  seek.op(side.open(side.skip(bits.of(frame), 32), nch), frame, nch, ov, qmf, lib)
+
 def dec.alt(
   silent: Bool, +frame: List<&2, U32>, +nch: U32, +ov: List<&2, F32>, +qmf: List<&2, F32>, +lib: Lib
 ) -> Maybe<&2, Out>:
@@ -809,9 +934,10 @@ def dec.alt(
     case True{}:
       Some{Out{dec.zpcm(nch), ov, qmf, 1, lib}}
     case False{}:
-      dec.live(frame, nch, ov, qmf, lib)
+      dec.seek(frame, nch, ov, qmf, lib)
 
 # one MPEG-1 Layer III frame. fresh 1 and an all-zero payload skip the filterbank.
+# A mono granule with big_values 1 and global_gain 0 returns that Huffman pair.
 # lib is already the scale-factor row for this sampling frequency.
 def dec.step(
   +frame: List<&2, U32>, +nch: U32, +ov: List<&2, F32>, +qmf: List<&2, F32>, +fresh: U32, +lib: Lib
