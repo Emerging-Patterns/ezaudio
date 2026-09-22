@@ -45,13 +45,6 @@ def f.of(xs: List<&2, U32>) -> List<&2, F32>:
 def f.rev(xs: List<&2, F32>) -> List<&2, F32>:
   List.reverse(&2, F32, xs)
 
-def mul.zip(xs: List<&2, F32>, ys: List<&2, F32>, acc: List<&2, F32>) -> List<&2, F32>:
-  match xs ys:
-    case +xx <> xt +yy <> yt:
-      mul.zip(xt, yt, ((xx * yy : F32) <> acc))
-    case _ _:
-      f.rev(acc)
-
 def y.wrap(last: Bool, +ii: U32) -> U32:
   match last:
     case True{}:
@@ -75,13 +68,6 @@ def y.store(got: Ya, +ii: U32, +vv: F32) -> Array<F32>:
 def y.add(acc: Array<F32>, +ii: U32, +vv: F32) -> Array<F32>:
   y.store(ya.of(Array.get(F32, acc, ii)), ii, vv)
 
-def y.fold(xs: List<&2, F32>, acc: Array<F32>, +ii: U32) -> Array<F32>:
-  match xs:
-    case Nil{}:
-      acc
-    case +hd <> tl:
-      y.fold(tl, y.add(acc, ii, hd), y.wrap(U32.is_eq(ii, 63), ii))
-
 def y.pull(hop: Nat, got: Ya, +ii: U32, acc: List<&2, F32>) -> List<&2, F32>:
   match hop got:
     case 0n Ya{_acc, +cur}:
@@ -91,6 +77,34 @@ def y.pull(hop: Nat, got: Ya, +ii: U32, acc: List<&2, F32>) -> List<&2, F32>:
 
 def y.list(acc: Array<F32>) -> List<&2, F32>:
   y.pull(63n, ya.of(Array.get(F32, acc, 0)), 0, [])
+
+# delay sample handed back beside the ring Array.get just read
+type Xs is Type:
+  Xs{x: Array<F32>, samp: F32}
+
+def xs.of(got: Array<F32> & F32) -> Xs:
+  (x, samp) = got
+  Xs{x, samp}
+
+# ring delay beside the 64 partial bins while windowing
+type Yr is Type:
+  Yr{x: Array<F32>, bins: Array<F32>}
+
+def y.step(got: Xs, bins: Array<F32>, +w: F32, +ii: U32) -> Yr:
+  match got:
+    case Xs{x2, +samp}:
+      Yr{x2, y.add(bins, ii, (samp * w : F32))}
+
+# window the 512-slot ring in place: multiply by win and fold into 64 bins
+def y.ring(
+  win: List<&2, F32>, got: Yr, +head: U32, +k: U32, +ii: U32
+) -> Yr:
+  match win got:
+    case Nil{} yr:
+      yr
+    case +w <> tl Yr{x, bins}:
+      y.ring(tl, y.step(xs.of(Array.get(F32, x, ((head + k : U32) .&. 511 : U32))), bins, w, ii),
+        head, (k + 1 : U32), y.wrap(U32.is_eq(ii, 63), ii))
 
 # a cosine table handed back beside the coefficient Array.get just read
 type Cf is Type:
@@ -135,29 +149,49 @@ def sb.rows(
     case 1n+p:
       sb.go(p, cf.of(dot.row(ys, tab, (row * 64 : U32), 0.0)), ys, row, acc)
 
-# subband samples of one shifted block. x holds 512 windowed-ready samples.
-def an.sb(+xx: List<&2, F32>, +win: List<&2, F32>, cos: Array<F32>) -> Array<F32> & List<&2, F32>:
-  sb.rows(32n, cos, y.list(y.fold(mul.zip(xx, win, []), Array.new(F32, 6n, 0.0), 0)), 0, [])
+# subband result: ring delay returned beside the cosine table and 32 bands
+type As is Type:
+  As{x: Array<F32>, cos: Array<F32>, sb: List<&2, F32>}
 
-# analysis delay line and finished subband blocks, newest block first
-type An is Data:
-  An{x: List<&2, F32>, out: List<&2, List<&2, F32>>}
-
-def an.done(
-  +nx: List<&2, F32>, out: List<&2, List<&2, F32>>, got: Array<F32> & List<&2, F32>
-) -> An & Array<F32>:
+def as.of(x: Array<F32>, got: Array<F32> & List<&2, F32>) -> As:
   (cos, sb) = got
-  (An{nx, sb <> out}, cos)
+  As{x, cos, sb}
 
-def an.pushed(
-  +nx: List<&2, F32>, out: List<&2, List<&2, F32>>, +win: List<&2, F32>, cos: Array<F32>
-) -> An & Array<F32>:
-  an.done(nx, out, an.sb(nx, win, cos))
+def an.sb1(got: Yr, cos: Array<F32>) -> As:
+  match got:
+    case Yr{x2, bins}:
+      as.of(x2, sb.rows(32n, cos, y.list(bins), 0, []))
+
+# subband samples of one ring state. head indexes the oldest of 512 samples.
+def an.sb(
+  x: Array<F32>, +head: U32, +win: List<&2, F32>, cos: Array<F32>
+) -> As:
+  an.sb1(y.ring(win, Yr{x, Array.new(F32, 6n, 0.0)}, head, 0, 0), cos)
+
+# analysis delay ring (2^9 slots) and finished subband blocks, newest block first
+type An is Type:
+  An{x: Array<F32>, head: U32, out: List<&2, List<&2, F32>>}
+
+def an.done(+head: U32, out: List<&2, List<&2, F32>>, got: As) -> An & Array<F32>:
+  match got:
+    case As{x, cos, sb}:
+      (An{x, head, sb <> out}, cos)
+
+# overwrite the oldest 32 ring slots, then advance head
+def an.write(hop: Nat, x: Array<F32>, +at: U32, blk: List<&2, F32>) -> Array<F32>:
+  match hop blk:
+    case 0n _:
+      x
+    case _ Nil{}:
+      x
+    case 1n+p +hd <> tl:
+      an.write(p, Array.set(F32, x, at, hd), ((at + 1 : U32) .&. 511 : U32), tl)
 
 def an.push(st: An, blk: List<&2, F32>, +win: List<&2, F32>, cos: Array<F32>) -> An & Array<F32>:
   match st:
-    case An{+xx, out}:
-      an.pushed(List.append(&2, F32, List.drop(&2, F32, xx, 32n), blk), out, win, cos)
+    case An{x, +head, out}:
+      an.done(((head + 32 : U32) .&. 511 : U32), out,
+        an.sb(an.write(32n, x, head, blk), ((head + 32 : U32) .&. 511 : U32), win, cos))
 
 def an.blk(
   +s00: F32, +s01: F32, +s02: F32, +s03: F32, +s04: F32, +s05: F32, +s06: F32, +s07: F32,
@@ -190,8 +224,9 @@ def an.go(xs: List<&2, F32>, got: Aw, +win: List<&2, F32>) -> An & Array<F32>:
 def an.walk(xs: List<&2, F32>, st: An, +win: List<&2, F32>, cos: Array<F32>) -> An & Array<F32>:
   an.go(xs, Aw{st, cos}, win)
 
+# 2^9 slots: 512-sample analysis delay, zero-filled, head at the oldest sample.
 def an.zero() -> An:
-  An{List.replicate(F32, 512n, 0.0), []}
+  An{Array.new(F32, 9n, 0.0), 0, []}
 
 # subband frames, newest block first. each block is 32 bands.
 def f.revs(xs: List<&2, List<&2, F32>>) -> List<&2, List<&2, F32>>:
@@ -199,7 +234,7 @@ def f.revs(xs: List<&2, List<&2, F32>>) -> List<&2, List<&2, F32>>:
 
 def an.out(st: An) -> List<&2, List<&2, F32>>:
   match st:
-    case An{_xx, out}:
+    case An{_x, _head, out}:
       f.revs(out)
 
 def cos.put(xs: List<&2, F32>, a: Array<F32>, +ii: U32) -> Array<F32>:
