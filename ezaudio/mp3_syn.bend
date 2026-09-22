@@ -1372,35 +1372,36 @@ def blk.go(hop: Nat, got: Bg, +nch: U32, +tm: U32) -> Bg:
     case 1n+p Bg{st, gr, syn}:
       blk.go(p, blk.one(Bg{st, gr, syn}, nch, tm), nch, u.add(tm, 2))
 
-# mono keeps the odd delay-line slots
-def qmf.mono(hop: Nat, dst: List<&2, F32>, got: La, +ii: U32) -> List<&2, F32>:
-  match hop got:
-    case 0n La{lin, _v}:
+# one even delay sample and the odd slot kept from the carried tail.
+# hop is the pairs still to come after this one. The sample was read at ii.
+def qmf.ev(hop: Nat, old: List<&2, F32>, got: La, +ii: U32, acc: List<&2, F32>) -> List<&2, F32>:
+  match hop old got:
+    case 0n +_e <> +odd <> _tl La{lin, +cur}:
       match lin:
         case _lin:
-          dst
-    case 1n+p La{lin1, v}:
-      qmf.mono(p, f.set(dst, ii, v), ln.at(lin1, u.add(1152, u.add(ii, 2))), u.add(ii, 2))
-
-# stereo copies the whole tail
-def qmf.copy(hop: Nat, dst: List<&2, F32>, got: La, +ii: U32) -> List<&2, F32>:
-  match hop got:
-    case 0n La{lin, _v}:
+          List.reverse(&2, F32, odd <> (cur <> acc))
+    case 1n+p +_e <> +odd <> tl La{lin, +cur}:
+      qmf.ev(p, tl, ln.at(lin, u.add(ii, 2)), u.add(ii, 2), odd <> (cur <> acc))
+    case _ _ La{lin, _v}:
       match lin:
         case _lin:
-          dst
-    case 1n+p La{lin1, v}:
-      qmf.copy(p, f.set(dst, ii, v), ln.at(lin1, u.add(1152, u.add(ii, 1))), u.add(ii, 1))
+          List.reverse(&2, F32, acc)
 
-# mono or stereo tail
-def qmf.pick(mono: Bool, qmf: List<&2, F32>, lin: Array<F32>) -> List<&2, F32>:
+# stereo tail: 960 delay-Array samples in one pull. The old list is dropped.
+def qmf.st(+old: List<&2, F32>, lin: Array<F32>) -> List<&2, F32>:
+  match old:
+    case _old:
+      ln.pull(959n, ln.at(lin, 1152), 1152, [])
+
+# mono keeps odd slots; stereo replaces the whole tail from the delay Array
+def qmf.pick(mono: Bool, +qmf: List<&2, F32>, lin: Array<F32>) -> List<&2, F32>:
   match mono:
     case True{}:
-      qmf.mono(480n, qmf, ln.at(lin, 1152), 0)
+      qmf.ev(479n, qmf, ln.at(lin, 1152), 1152, [])
     case False{}:
-      qmf.copy(960n, qmf, ln.at(lin, 1152), 0)
+      qmf.st(qmf, lin)
 
-# save the 15-block tail. mono copies only even indices.
+# save the 15-block tail off the delay Array, one pass, no List.set
 def qmf.save(lin: Array<F32>, +qmf: List<&2, F32>, +nch: U32) -> List<&2, F32>:
   qmf.pick(U32.is_eq(nch, 1), qmf, lin)
 
