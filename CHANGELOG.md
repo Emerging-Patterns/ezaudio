@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.4...v0.2.5) (2026-09-22)
+
+
+### Performance Improvements
+
+* keep the MP3 synthesis window in an Array ([#23](https://github.com/Emerging-Patterns/ezaudio/issues/23)) ([2350eb5](https://github.com/Emerging-Patterns/ezaudio/commit/2350eb5a38d843fbf6efc6cc46d0512244ba6fcd))
+
 ## [0.2.4](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.3...v0.2.4) (2026-09-22)
 
 
