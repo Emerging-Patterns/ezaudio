@@ -395,16 +395,16 @@ def bv.last(st: Bv) -> U32:
 def bv.of(ix: List<&2, U32>, +hz: U32) -> U32:
   bv.last(bv.go(22n, Bv{ix, 0, 0}, hz, 0))
 
-# Huffman bits for one granule, newest bit first, and whether the table fit
+# Huffman bits for one granule, newest bit first, running length, and whether the table fit
 type Hp is Data:
-  Hp{bits: List<&2, U32>, ok: U32}
+  Hp{bits: List<&2, U32>, n: U32, ok: U32}
 
 def hp.bit(hp: Hp, +bit: U32) -> Hp:
   match hp:
-    case Hp{_bs, 0}:
-      Hp{[], 0}
-    case Hp{bs, _ok}:
-      Hp{bit <> bs, 1}
+    case Hp{_bs, _n, 0}:
+      Hp{[], 0, 0}
+    case Hp{bs, +n, _ok}:
+      Hp{bit <> bs, (n + 1 : U32), 1}
 
 def hp.field(hop: Nat, hp: Hp, +code: U32, +left: U32) -> Hp:
   match hop:
@@ -467,7 +467,7 @@ def hp.over(aa: U32, bb: U32, +lin: U32) -> Bool:
 def hp.bad(z: Bool, hp: Hp) -> Hp:
   match z:
     case True{}:
-      Hp{[], 0}
+      Hp{[], 0, 0}
     case False{}:
       hp
 
@@ -486,7 +486,7 @@ def word.of(codes: Array<U32>, +tab: U32, +ca: U32, +cb: U32) -> Array<U32> & U3
 def hp.use(z: Bool, hp: Hp, +w: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32) -> Hp:
   match z:
     case True{}:
-      Hp{[], 0}
+      Hp{[], 0, 0}
     case False{}:
       hp.sign(hp.lin(hp.sign(hp.lin(hp.field(U32.to_nat((w >> 16n : U32)), hp, (w .&. 65535 : U32),
         (w >> 16n : U32)), lin, aa), av, aa), lin, bb), bv, bb)
@@ -528,12 +528,7 @@ def hp.pairs(
     case +aa <> +bb <> tl Hs{codes, hp}:
       hp.pairs(tl, hs.of(hp.pair(hp, tab, aa, bb, codes, lins)), tab, lins)
     case _ Hs{codes, _hp}:
-      (codes, Hp{[], 0})
-
-def hp.len(hp: Hp) -> U32:
-  match hp:
-    case Hp{bs, _ok}:
-      U32.from_nat(List.length(&2, U32, bs))
+      (codes, Hp{[], 0, 0})
 
 def hp.cands() -> List<&2, U32>:
   [15, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
@@ -569,16 +564,15 @@ def best.keep(
     case False{}:
       Best{bt, bn, bb, bok}
 
-def best.from(b: Best, +tab: U32, +ok: U32, +bits: List<&2, U32>) -> Best:
+def best.from(b: Best, +tab: U32, +ok: U32, +nn: U32, bits: List<&2, U32>) -> Best:
   match b:
     case Best{+bt, +bn, bb, +bok}:
-      best.keep(best.better(bok, bn, ok, U32.from_nat(List.length(&2, U32, bits))), tab,
-        U32.from_nat(List.length(&2, U32, bits)), bits, bt, bn, bb, bok)
+      best.keep(best.better(bok, bn, ok, nn), tab, nn, bits, bt, bn, bb, bok)
 
 def best.got(b: Best, +tab: U32, hp: Hp) -> Best:
   match hp:
-    case Hp{+bits, ok}:
-      best.from(b, tab, ok, bits)
+    case Hp{+bits, +n, ok}:
+      best.from(b, tab, ok, n, bits)
 
 def best.pull(b: Best, +tab: U32, got: Hs) -> Array<U32> & Best:
   match got:
@@ -588,7 +582,7 @@ def best.pull(b: Best, +tab: U32, got: Hs) -> Array<U32> & Best:
 def best.one(
   b: Best, +tab: U32, ix: List<&2, U32>, codes: Array<U32>, +lins: List<&2, U32>
 ) -> Array<U32> & Best:
-  best.pull(b, tab, hs.of(hp.pairs(ix, Hs{codes, Hp{[], 1}}, tab, lins)))
+  best.pull(b, tab, hs.of(hp.pairs(ix, Hs{codes, Hp{[], 0, 1}}, tab, lins)))
 
 def best.step(
   b: Best, +tab: U32, +ix: List<&2, U32>, codes: Array<U32>, +lins: List<&2, U32>
