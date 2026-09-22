@@ -406,9 +406,9 @@ def correct_mp3():
             add_case("E ezaudio mp3 pair", "decode pair+zeros", "PASS" if ok else "FAIL",
                      f"n={len(gpx)} head={gpx[:4] if gpx else []}")
 
-    # Non-silent encode smoke: music-like must leave the silence / pair fast paths
+    # Non-silent encode smoke: one full frame of music (not silence / not Huffman-pair)
     log("\n== MP3 non-silent filterbank smoke ==")
-    fx = fixture("music", 44100, 1, 0.05)  # ~2 frames; correctness smoke only
+    fx = fixture("music", 44100, 1, 1152 / 44100.0)  # exactly one Layer III frame
     eza = os.path.join(WORK, "nz_music.eza")
     write_eza(eza, fx["hz"], fx["nch"], fx["fmt"], fx["samples"])
     outp = eza + ".mp3"
@@ -417,10 +417,10 @@ def correct_mp3():
         add_case("E2 ezaudio mp3 live", fx["label"], "FAIL", f"rc={er['rc']} err={er['err'][:160]}")
     else:
         got = open(outp, "rb").read()
-        # Must be longer than one silent frame header pattern alone; accept multi-frame
-        ok = len(got) >= 1044 and got[:2] == b"\xff\xfb"
+        # Silent path is header+zeros; live path still FF FB… but side-info/payload differ
+        ok = len(got) == 1044 and got[:4] == bytes([255, 251, 224, 196]) and any(b != 0 for b in got[4:])
         add_case("E2 ezaudio mp3 live", fx["label"] + " encode", "PASS" if ok else "FAIL",
-                 f"len={len(got)} head={list(got[:4])}")
+                 f"len={len(got)} head={list(got[:4])} nonzero_tail={any(b != 0 for b in got[4:])}")
         r, dec = run_decode("mp3-dec", outp, 300)
         if dec is None:
             add_case("E2 ezaudio mp3 live", fx["label"] + " decode", "FAIL", f"rc={r['rc']}")
