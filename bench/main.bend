@@ -2,16 +2,6 @@
 # Built as a native ELF via `bend bench/main.bend -o …` (CC=bend-cc or clang -O3).
 import ../ezaudio/main.bend as Au
 
-# the argv string at index n, or empty when missing
-def arg.at(xs: List<String>, n: Nat) -> String:
-  match xs n:
-    case Nil{} _n:
-      ""
-    case h <> _t 0n:
-      h
-    case _h <> t 1n+p:
-      arg.at(t, p)
-
 # unwrap a parsed U32, or zero when parse fails
 def u32.arg.go(m: Maybe<&2, U32>) -> U32:
   match m:
@@ -35,10 +25,6 @@ def rep(n: Nat, +x: U32, acc: List<&2, U32>) -> List<&2, U32>:
 # a mono s16 clip filled with one sample value
 def solid.s16(+hz: U32, +nframes: U32, +sample: U32) -> Au.Clip:
   Au.fill(hz, 1, Au.s16(), sample, nframes)
-
-# a mono f32 clip filled with one sample value (bits)
-def solid.f32(+hz: U32, +nframes: U32, +sample: U32) -> Au.Clip:
-  Au.fill(hz, 1, Au.f32(), sample, nframes)
 
 # little-endian bytes of a U32
 def u32.le(+n: U32) -> U32 & U32 & U32 & U32:
@@ -67,16 +53,15 @@ def fmt.tag(fmt: Au.Format) -> U32:
   Au.kind.of(fmt)
 
 # EZA1 bytes for a clip
-def emit.eza(+hz: U32, +nch: U32, +fmt: U32, px: List<&2, U32>) -> List<&2, U32>:
-  +ns = U32.from_nat(List.length(&2, U32, px))
+def emit.eza(+hz: U32, +nch: U32, +fmt: U32, +ns: U32, px: List<&2, U32>) -> List<&2, U32>:
   +magic = {49 <> {65 <> {90 <> {69 <> [] : List<&2, U32>} : List<&2, U32>} : List<&2, U32>} : List<&2, U32>}
   List.reverse(&2, U32, emit.px(px, push.u32(ns, push.u32(fmt, push.u32(nch, push.u32(hz, magic))))))
 
 # serialize a Clip as EZA1
 def clip.bytes(c: Au.Clip) -> List<&2, U32>:
   match c:
-    case Au.Clip{+hz, +nch, fmt, pcm}:
-      emit.eza(hz, nch, fmt.tag(fmt), pcm)
+    case Au.Clip{+hz, +nch, fmt, +pcm}:
+      emit.eza(hz, nch, fmt.tag(fmt), U32.from_nat(List.length(&2, U32, pcm)), pcm)
 
 # rebuild a U32 from four little-endian bytes
 def u32.of4(+a: U32, +b: U32, +c: U32, +d: U32) -> U32:
