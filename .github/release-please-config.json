@@ -10,7 +10,8 @@
           "type": "generic",
           "path": "flake.nix"
         }
-      ]
+      ],
+      "versioning": "always-bump-minor"
     }
   }
 }
