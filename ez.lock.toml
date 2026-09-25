@@ -1,7 +1,7 @@
 [lock]
 version = "2"
 hub = "https://hub.bend-lang.com"
-
+[tools]
 [tools.bolt]
 git = "https://github.com/Emerging-Patterns/bolt"
 rev = "02fb09377f5c0fbddb5f6b7c32c8ab4ae14240df"
