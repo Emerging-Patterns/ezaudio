@@ -11,11 +11,6 @@
     inputs.nixpkgs.follows = "nixpkgs";
     inputs.bend.follows = "bend";
   };
-  inputs.bolt = {
-    url = "github:Emerging-Patterns/bolt";
-    inputs.nixpkgs.follows = "nixpkgs";
-    inputs.bend.follows = "bend";
-  };
 
   outputs = { self, nixpkgs, ... }@inputs:
     let
@@ -25,7 +20,7 @@
       ez = inputs.ez.lib.${system};
       ezBin = inputs.ez.packages.${system}.default;
       bend = inputs.bend.packages.${system}.default;
-      bolt = inputs.bolt.packages.${system}.default;
+      bolt = ez.toolPackage { name = "bolt"; src = self; inherit bend; wrapFlags = [ "--gpu" "off" ]; };
       bend-cc = ez.bend-cc;
 
       bench = import ./bench {
@@ -43,15 +38,15 @@
 
       checks.${system} = {
         proofs = ez.mkProofs { ez = ezBin; src = self; };
-        lint = ez.mkLint { inherit bolt; src = self; };
+        lint = ez.mkLint { src = self; };
       } // bench.checks;
 
       devShells.${system}.default = ez.mkShell {
+        src = self;
         packages = [
           bend
           bend-cc
           ezBin
-          bolt
           pkgs.python3
           pkgs.ffmpeg-headless
           bench.packages.ezaudio-bench-drv
