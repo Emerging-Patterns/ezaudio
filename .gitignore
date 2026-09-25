@@ -1,6 +1,8 @@
 result
 bin/
-.ez/
+.ez/*
+!.ez/lib
+.ez/lib/*
 .gate/
 *.gpu
 .claude/

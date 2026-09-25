@@ -1,6 +1,6 @@
-[package]
-name = "ezaudio"
-entry = "ezaudio/main.bend"
+[lock]
+version = "2"
+hub = "https://hub.bend-lang.com"
 
 [tools.bolt]
 git = "https://github.com/Emerging-Patterns/bolt"
