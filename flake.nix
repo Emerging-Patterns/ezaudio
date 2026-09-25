@@ -9,7 +9,10 @@
   inputs.ez = {
     url = "github:Emerging-Patterns/ez";
     inputs.nixpkgs.follows = "nixpkgs";
-    inputs.bend.follows = "bend";
+    # not `inputs.bend.follows = "bend"`: ez 1.2.0 does not build on bend
+    # 2.0.28, so ez (and `ez prove`, and bolt through mkLint) keep the bend
+    # ez 1.2.0 locks, 2.0.27
+    inputs.bend.url = "github:bendlang/bend/d37909174ebd664338ae3194799a9e0899dedd51";
   };
 
   outputs = { self, nixpkgs, ... }@inputs:
@@ -20,7 +23,7 @@
       ez = inputs.ez.lib.${system};
       ezBin = inputs.ez.packages.${system}.default;
       bend = inputs.bend.packages.${system}.default;
-      bolt = ez.toolPackage { name = "bolt"; src = self; inherit bend; wrapFlags = [ "--gpu" "off" ]; };
+      bolt = ez.toolPackage { name = "bolt"; src = self; wrapFlags = [ "--gpu" "off" ]; };
       bend-cc = ez.bend-cc;
 
       bench = import ./bench {

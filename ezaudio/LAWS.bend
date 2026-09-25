@@ -44,10 +44,10 @@ def pcm.pair() -> List<&2, U32>:
 def bytes.main(xs: List<&2, U32>) -> List<&2, U32>:
   Dec.side.skip(Dec.bits.of(xs), ((32 + 18 : U32)))
 
-def gran.0(xs: List<&2, U32>) -> Dec.Gd:
+def gran.g0(xs: List<&2, U32>) -> Dec.Gd:
   Dec.side.gd(Dec.side.ch(bytes.main(xs)))
 
-def gran.1(xs: List<&2, U32>) -> Dec.Gd:
+def gran.g1(xs: List<&2, U32>) -> Dec.Gd:
   Dec.side.gd(Dec.side.ch(Dec.side.pair(Dec.side.ch(bytes.main(xs)))))
 
 def pair.bytes() -> List<&2, U32>:
@@ -82,8 +82,8 @@ def gd.tab(g: Dec.Gd) -> U32:
 # Separate laws each re-normalized pair.bytes() and dominated `ez test` wall time.
 def pair.probe() -> List<&2, U32> & U32 & U32 & U32 & U32 & U32 & U32 & U32 & Maybe<&2, Au.Clip>:
   +xs = pair.bytes()
-  +g0 = gran.0(xs)
-  +g1 = gran.1(xs)
+  +g0 = gran.g0(xs)
+  +g1 = gran.g1(xs)
   (List.take(&2, U32, xs, 4n), U32.from_nat(List.length(&2, U32, xs)), gd.big(g0),
     gd.gain(g0), gd.part(g0), gd.block(g0), gd.tab(g0), gd.big(g1), Au.decode_mp3(xs))
 
