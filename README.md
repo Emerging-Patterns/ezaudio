@@ -4,10 +4,19 @@ Audio for [Bend 2](https://github.com/bendlang/bend).
 
 ## Install
 
-Use with [Bend](https://github.com/bendlang/bend) or install easily with [ez](https://github.com/Emerging-Patterns/ez):
+With [Bend](https://github.com/bendlang/bend) alone there is nothing to
+install: import ezaudio by its hub name and `bend` fetches it from
+[the hub](https://hub.bend-lang.com) into `~/.bend/lib` on the first run.
+`0x05eb91b04a37c34a9abe2324661894f5` is ezaudio v0.2.9.
 
 ```
-ez init
+import 0x05eb91b04a37c34a9abe2324661894f5/main.bend as Au
+```
+
+Or with [ez](https://github.com/Emerging-Patterns/ez), which records the
+package in `ez.toml` (`ez init` makes one):
+
+```
 ez add Emerging-Patterns/ezaudio
 ```
 
@@ -24,7 +33,7 @@ the filterbank. `count`, `fill`, `trim`, and `concat` are the raw-frame
 helpers. Resampling is not in this version.
 
 ```
-import ./ezaudio/main.bend as Au
+import 0x05eb91b04a37c34a9abe2324661894f5/main.bend as Au
 
 def main() -> U32:
   Au.rate(Au.clip(8000, 1, Au.s16(), [0, 1]))
