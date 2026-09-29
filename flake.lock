@@ -7,6 +7,25 @@
         ]
       },
       "locked": {
+        "lastModified": 1790643370,
+        "narHash": "sha256-VYGPIHkNeccEaBHGer1B7+GNiWKQBiN/iiS7PozBXx0=",
+        "owner": "bendlang",
+        "repo": "bend",
+        "rev": "777ee0b55c485afdd7e68bd917b3d23a88d77371",
+        "type": "github"
+      },
+      "original": {
+        "owner": "bendlang",
+        "repo": "bend",
+        "rev": "777ee0b55c485afdd7e68bd917b3d23a88d77371",
+        "type": "github"
+      }
+    },
+    "bend_2": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
         "lastModified": 1790482124,
         "narHash": "sha256-Gv309ikt48M8cISbwSo6V0md2572iieIRiyl3noF1cA=",
         "owner": "bendlang",
@@ -17,14 +36,13 @@
       "original": {
         "owner": "bendlang",
         "repo": "bend",
+        "rev": "af569d4826913b2ce3557e9829ccad31fcf86f94",
         "type": "github"
       }
     },
     "ez": {
       "inputs": {
-        "bend": [
-          "bend"
-        ],
+        "bend": "bend_2",
         "nixpkgs": [
           "nixpkgs"
         ]
@@ -45,6 +63,22 @@
     },
     "nixpkgs": {
       "locked": {
+        "lastModified": 1790578696,
+        "narHash": "sha256-ZoxIApko70jCdbH3l20HWXOBaT2HZd87orzd2yJ9dVE=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "7a0f122f5090cf4c2ade2a13a0e229d4e19ba71f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
         "lastModified": 1789921291,
         "narHash": "sha256-Ft/BRnIqw1MywFoXydKobjjWmDFgDdYtSpJliE8+yUw=",
         "owner": "NixOS",
@@ -63,7 +97,7 @@
       "inputs": {
         "bend": "bend",
         "ez": "ez",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs_2"
       }
     }
   },
