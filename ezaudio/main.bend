@@ -1,4 +1,6 @@
-# ezaudio: a Clip is a sample rate, a channel count, a sample format, and
+# ezaudio: audio for Bend 2, reading and writing WAV (RIFF PCM) and MP3 (MPEG-1 Layer III).
+#
+# A Clip is a sample rate, a channel count, a sample format, and
 # interleaved PCM frames. WAV reads and writes RIFF PCM. MP3 reads and writes
 # MPEG-1 Layer III.
 import Base
