@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.3.0...v0.4.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* ezaudio's internal modules moved from ezaudio/ to src/, and the entry from ezaudio/main.bend to main.bend. Importers of main.bend by the package's hub name are unaffected; importers of any other module update the path, e.g. <hash>/wav.bend becomes <hash>/src/wav.bend. The package now carries its MIT LICENSE (it was published as MIT-0).
+
+### Features
+
+* ez init's layout, main.bend at the root and modules under src/ ([#43](https://github.com/Emerging-Patterns/ezaudio/issues/43)) ([99ff44a](https://github.com/Emerging-Patterns/ezaudio/commit/99ff44a169d42bb3af48aa4c28fd20217aebe1d5))
+
 ## [0.3.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.9...v0.3.0) (2026-09-30)
 
 
