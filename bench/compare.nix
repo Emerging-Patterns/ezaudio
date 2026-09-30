@@ -339,7 +339,7 @@ def correct_wav():
 
 def correct_mp3():
     log("\n== MP3 correctness (LAWS fixtures + ffmpeg where fair) ==")
-    # Silent frame fixtures matching ezaudio/LAWS.bend (correctness only; not speed)
+    # Silent frame fixtures matching LAWS.bend (correctness only; not speed)
     silent_cases = [
         ("silence 44100 mono", [255, 251, 224, 196], 1044, 44100, 1, 1152),
         ("silence 44100 stereo", [255, 251, 224, 4], 1044, 44100, 2, 2304),

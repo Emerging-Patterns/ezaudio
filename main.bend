@@ -4,8 +4,8 @@
 # interleaved PCM frames. WAV reads and writes RIFF PCM. MP3 reads and writes
 # MPEG-1 Layer III.
 import Base
-import ./wav.bend as Wav
-import ./mp3.bend as Mp3
+import ./src/wav.bend as Wav
+import ./src/mp3.bend as Mp3
 
 # signed 16-bit PCM, or IEEE 754 binary32
 type Format is Data:
