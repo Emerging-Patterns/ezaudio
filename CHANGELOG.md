@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.9...v0.3.0) (2026-09-30)
+
+
+### Bug Fixes
+
+* a one-line package description on the hub ([#41](https://github.com/Emerging-Patterns/ezaudio/issues/41)) ([4bdac06](https://github.com/Emerging-Patterns/ezaudio/commit/4bdac060b864f41f05dc9840d4f73d2349990831))
+
 ## [0.2.9](https://github.com/Emerging-Patterns/ezaudio/compare/v0.2.8...v0.2.9) (2026-09-22)
 
 
