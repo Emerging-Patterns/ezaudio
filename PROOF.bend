@@ -1,4 +1,4 @@
-# ezaudio: the proofs. `bend ezaudio/PROOF.bend` is the gate.
+# ezaudio: the proofs. `bend PROOF.bend` is the gate.
 import Base
 import ./LAWS.bend as Laws
 

@@ -2,7 +2,7 @@
 # Built as a native ELF via `bend bench/main.bend -o …` (CC=bend-cc or clang -O3).
 # Speed path: bench-*-enc-file / bench-*-dec time the codec only (load outside IO.now).
 # Prefer non-silent EZA fixtures for MP3 so the filterbank path is measured, not silence.
-import ../ezaudio/main.bend as Au
+import ../main.bend as Au
 
 # unwrap a parsed U32, or zero when parse fails
 def u32.arg.go(m: Maybe<&2, U32>) -> U32:

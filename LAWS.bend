@@ -2,11 +2,11 @@
 # MPEG-1 Layer III frames. PROOF.bend fills them.
 import Base
 import ./main.bend as Au
-import ./wav.bend as Wav
-import ./mp3.bend as Mp3
-import ./mp3_dec.bend as Dec
-import ./mp3_enc.bend as Enc
-import ./mp3_syn.bend as Syn
+import ./src/wav.bend as Wav
+import ./src/mp3.bend as Mp3
+import ./src/mp3_dec.bend as Dec
+import ./src/mp3_enc.bend as Enc
+import ./src/mp3_syn.bend as Syn
 
 # two s16 frames at 8000 Hz
 def fix.mono() -> Au.Clip:

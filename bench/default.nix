@@ -10,7 +10,7 @@
   lib,
   bend,
   bend-cc,
-  # Flake `self` (repo root). Used only to copy ezaudio/ + bench/main.bend.
+  # Flake `self` (repo root). Used only to copy main.bend, src/ and bench/main.bend.
   self,
 }:
 
@@ -25,7 +25,8 @@ let
     dontUnpack = true;
     nativeBuildInputs = [ bend llvm.clang ];
     buildPhase = ''
-      cp -r ${self}/ezaudio ./ezaudio
+      cp ${self}/main.bend ./main.bend
+      cp -r ${self}/src ./src
       mkdir -p bench
       cp ${./main.bend} bench/main.bend
       cd bench

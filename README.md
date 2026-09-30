@@ -41,8 +41,8 @@ def main() -> U32:
 
 ## Compliance
 
-Closed equalities in `ezaudio/LAWS.bend`, proved in `ezaudio/PROOF.bend`
-(`bend ezaudio/PROOF.bend`), target:
+Closed equalities in `LAWS.bend`, proved in `PROOF.bend`
+(`bend PROOF.bend`), target:
 
 - The IBM/Microsoft RIFF WAVE form: the `RIFF`, `WAVE`, `fmt `, and `data`
   identifiers. A mono signed-16 clip at 8000 Hz encodes as PCM (format tag 1),
