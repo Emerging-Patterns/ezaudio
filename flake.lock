@@ -31,11 +31,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1790728722,
-        "narHash": "sha256-6SDNpCeAfR66xuSO8vkoBMZAQ24ZUyGYLc9GFadFYy8=",
+        "lastModified": 1791381403,
+        "narHash": "sha256-TaCVkunKx0FZVquSGNHmuzPDAI7DCv8Sy8upvTh324g=",
         "owner": "Emerging-Patterns",
         "repo": "ez",
-        "rev": "b5693ce28337e770b2c70c99d53d311cd044dc24",
+        "rev": "10276ec0d103f77f14bf2191e6bf7d41416a870f",
         "type": "github"
       },
       "original": {
