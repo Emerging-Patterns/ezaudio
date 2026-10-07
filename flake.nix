@@ -2,14 +2,14 @@
   description = "ezaudio: audio for Bend 2";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  # bendlang/bend's flake at the commit that packages 2.0.35 (the v2.0.35 tag
-  # still packages 2.0.34)
+  # bendlang/bend's flake at the commit that packages 2.0.36 (the v2.0.36 tag
+  # still packages 2.0.35)
   inputs.bend = {
-    url = "github:bendlang/bend/5a0b523f7759335164f1dead0e0815234a5fd9dc";
+    url = "github:bendlang/bend/eebc18cd04daeade06c3f68c3c96c1faefd3462f";
     inputs.nixpkgs.follows = "nixpkgs";
   };
   # ez 1.3.0's bend follows this flake's bend:
-  # ez, `ez prove` and bolt all build on 2.0.35.
+  # ez, `ez prove` and bolt all build on 2.0.36.
   inputs.ez = {
     url = "github:Emerging-Patterns/ez";
     inputs.nixpkgs.follows = "nixpkgs";
