@@ -4,7 +4,7 @@ Audio for [Bend 2](https://github.com/bendlang/bend).
 
 ## Install
 
-ezaudio is built and checked on bend 2.0.35.
+ezaudio is built and checked on bend 2.0.36.
 
 With [Bend](https://github.com/bendlang/bend) alone there is no install
 step: import ezaudio by its hub name and `bend` fetches it from
