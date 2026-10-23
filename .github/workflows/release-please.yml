@@ -15,6 +15,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  actions: write
 
 jobs:
   release-please:
@@ -22,8 +23,10 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-    uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@73b2fbc64cefd6e22bd786437adb5f35190ee837
+      actions: write
+    uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@5b1f535455bd08665ae4286185ea7a8ad8836a8b
     with:
+      ci-workflow: ci.yml
       config-file: .github/release-please-config.json
       manifest-file: .github/release-please-manifest.json
 
