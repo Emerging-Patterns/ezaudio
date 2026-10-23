@@ -24,7 +24,7 @@ jobs:
       pull-requests: write
       issues: write
       actions: write
-    uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@c1e67a64b783967980b786f559b334307d3272aa
+    uses: Emerging-Patterns/actions/.github/workflows/release-please.yml@dec791a0f395ce75effc38afe7df0fa33bb84384
     with:
       ci-workflow: ci.yml
       config-file: .github/release-please-config.json
