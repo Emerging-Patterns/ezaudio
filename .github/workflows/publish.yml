@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   publish:
-    uses: Emerging-Patterns/actions/.github/workflows/publish.yml@c600847532d562579fb7689e4dfbc22ee2b01a13
+    uses: Emerging-Patterns/actions/.github/workflows/publish.yml@df4af92903396c9021937801c4f7f0c26ac3e890
     with:
       tag: ${{ inputs.tag }}
       hub-name: emerging-ezaudio
