@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.4.0...v0.5.0) (2026-10-25)
+
+
+### Features
+
+* **nix:** build and check on x86_64-linux, aarch64-linux and aarch64-darwin ([#54](https://github.com/Emerging-Patterns/ezaudio/issues/54)) ([9d5089a](https://github.com/Emerging-Patterns/ezaudio/commit/9d5089ac6d1f279de9f5be6de535dd71b0aaacbd))
+
 ## [0.4.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.3.0...v0.4.0) (2026-09-30)
 
 
