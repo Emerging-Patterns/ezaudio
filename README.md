@@ -50,8 +50,10 @@ def main() -> U32:
 
 ## Compliance
 
-Closed equalities in `LAWS.bend`, proved in `PROOF.bend`
-(`bend PROOF.bend`), target:
+[LAWS.bend](LAWS.bend) lists what ezaudio guarantees: one file under
+[laws/](laws/) each, proved by the file of the same name under
+[proofs/](proofs/) (`bend PROOF.bend`). Each law is still a closed
+equality on one fixture. They target:
 
 - The IBM/Microsoft RIFF WAVE form: the `RIFF`, `WAVE`, `fmt `, and `data`
   identifiers. A mono signed-16 clip at 8000 Hz encodes as PCM (format tag 1),
