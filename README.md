@@ -35,10 +35,8 @@ A clip is a `Clip`: a sample rate, a channel count, a sample format, and
 interleaved frames. `s16` is signed 16-bit PCM. `f32` is IEEE 754 binary32,
 stored as its bits. `decode_wav` and `encode_wav` read and write a RIFF WAVE
 file of that PCM. `decode_mp3` reads MPEG-1 Layer III into `f32` frames.
-`encode_mp3` writes MPEG-1 Layer III at 320 kbit/s. One mono signed-16 sample
-whose magnitude is 1..15 is stored as a single Huffman pair; decoding that
-frame returns the two magnitudes and then zeros. Other clips are encoded with
-the filterbank. `count`, `fill`, `trim`, and `concat` are the raw-frame
+`encode_mp3` writes MPEG-1 Layer III at 320 kbit/s through the analysis
+filterbank, MDCT and Huffman coder. `count`, `fill`, `trim`, and `concat` are the raw-frame
 helpers. Resampling is not in this version.
 
 ```
@@ -87,14 +85,8 @@ inputs. They target:
   `FF FB E0 C4` and 1044 bytes at 44100 Hz mono, `FF FB E0 04` and 1044 bytes
   for stereo, `FF FB E4 C4` and 960 bytes at 48000 Hz, `FF FB E8 C4` and 1440
   bytes at 32000 Hz. Decoding those byte strings yields 1152 zero binary32
-  samples per channel. Binary32 silence encodes as the mono frame. One mono
-  signed-16 sample of magnitude 1 encodes with the same header and length.
-  Its first granule is a long block, `big_values` 1, `global_gain` 0,
-  `part2_3_length` 4, Huffman table 13. The second granule's `big_values` is
-  0. Decoding that frame returns the Huffman pair as the first two words
-  (1, then 0) and 1150 zeros. That equality is the pair, not the synthesis
-  filterbank. An empty sample list, and a rate other than 32000, 44100, or
-  48000, encode as none.
+  samples per channel. Binary32 silence encodes as the mono frame. An empty
+  sample list, and a rate other than 32000, 44100, or 48000, encode as none.
 
 Decode accepts long blocks only. Short blocks, a non-zero scale-factor
 compress, a bit reservoir, joint stereo, a CRC, the count1 region, preflag,

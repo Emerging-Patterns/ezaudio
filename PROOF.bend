@@ -10,7 +10,6 @@ import ./proofs/FillRepeatsSample.bend as PFillRepeatsSample
 import ./proofs/Mp3DecodeRefusesUnsupported.bend as PMp3DecodeRefusesUnsupported
 import ./proofs/Mp3EncodeRefusesBadClips.bend as PMp3EncodeRefusesBadClips
 import ./proofs/Mp3HeaderFieldsRead.bend as PMp3HeaderFieldsRead
-import ./proofs/Mp3OneSampleIsHuffmanPair.bend as PMp3OneSampleIsHuffmanPair
 import ./proofs/Mp3SilenceDecodesToZeros.bend as PMp3SilenceDecodesToZeros
 import ./proofs/Mp3SilenceIsHeaderAndZeros.bend as PMp3SilenceIsHeaderAndZeros
 import ./proofs/ScaleFactorRowPerRate.bend as PScaleFactorRowPerRate

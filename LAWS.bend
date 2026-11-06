@@ -24,7 +24,6 @@ import ./laws/FillRepeatsSample.bend as FillRepeatsSample
 import ./laws/Mp3DecodeRefusesUnsupported.bend as Mp3DecodeRefusesUnsupported
 import ./laws/Mp3EncodeRefusesBadClips.bend as Mp3EncodeRefusesBadClips
 import ./laws/Mp3HeaderFieldsRead.bend as Mp3HeaderFieldsRead
-import ./laws/Mp3OneSampleIsHuffmanPair.bend as Mp3OneSampleIsHuffmanPair
 import ./laws/Mp3SilenceDecodesToZeros.bend as Mp3SilenceDecodesToZeros
 import ./laws/Mp3SilenceIsHeaderAndZeros.bend as Mp3SilenceIsHeaderAndZeros
 import ./laws/ScaleFactorRowPerRate.bend as ScaleFactorRowPerRate

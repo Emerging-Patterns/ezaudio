@@ -9,7 +9,7 @@
 #   and must never appear as a speed reference (spawn overhead would fake a "win").
 # - Speed fixtures are product-shaped: 16/44.1/48 kHz, mono+stereo, ~0.1–1 s,
 #   speech-like (voiced/band-limited) and music-like (broadband/multi-tone). Silence
-#   and Huffman-pair stay in correctness; they do not dominate the speed table.
+#   and the one-sample clip stay in correctness; they do not dominate the speed table.
 # - IO.now is 1 ms. If MS is 0, N is raised; if still unresolved, wall/n is reported
 #   honestly without claiming a vs-reference win.
 { drvBin ? "ezaudio-bench" }:
@@ -169,9 +169,6 @@ def frame_z(header, nbytes):
 
 def pcm_zeros(n):
     return [0] * n
-
-def pcm_pair():
-    return [1, 0] + [0] * 1150
 
 def rms_f32_bits(samples):
     if not samples:
@@ -384,29 +381,29 @@ def correct_mp3():
         except Exception as e:
             add_case("D ffmpeg←ezaudio silence", name, "FAIL", repr(e)[:200])
 
-    # Huffman-pair fixture from LAWS: one s16 sample of magnitude 1 (correctness only)
-    log("\n== MP3 Huffman-pair fixture ==")
-    eza = os.path.join(WORK, "pair.eza")
+    # one s16 sample of magnitude 1 goes through the filterbank like any clip
+    log("\n== MP3 one-sample clip ==")
+    eza = os.path.join(WORK, "one.eza")
     write_eza(eza, 44100, 1, FMT_S16, [1])
     outp = eza + ".mp3"
     er = ez(["mp3-enc", eza, outp], 120)
     if er["timeout"] or er["rc"] != 0 or not os.path.exists(outp):
-        add_case("E ezaudio mp3 pair", "encode", "FAIL", f"rc={er['rc']}")
+        add_case("E ezaudio mp3 one sample", "encode", "FAIL", f"rc={er['rc']}")
     else:
         got = open(outp, "rb").read()
-        ok_head = got[:4] == bytes([255, 251, 224, 196]) and len(got) == 1044
-        add_case("E ezaudio mp3 pair", "header+len", "PASS" if ok_head else "FAIL",
+        ok_head = got[:4] == bytes([255, 251, 224, 196]) and len(got) % 1044 == 0
+        add_case("E ezaudio mp3 one sample", "header+len", "PASS" if ok_head else "FAIL",
                  f"head={list(got[:4])} len={len(got)}")
         r, dec = run_decode("mp3-dec", outp, 120)
         if dec is None:
-            add_case("E ezaudio mp3 pair", "decode", "FAIL", f"rc={r['rc']}")
+            add_case("E ezaudio mp3 one sample", "decode", "FAIL", f"rc={r['rc']}")
         else:
             ghz, gnch, gfmt, gpx = dec
-            ok = (ghz, gnch, gfmt, gpx) == (44100, 1, FMT_F32, pcm_pair())
-            add_case("E ezaudio mp3 pair", "decode pair+zeros", "PASS" if ok else "FAIL",
+            ok = (ghz, gnch, gfmt) == (44100, 1, FMT_F32) and len(gpx) % 1152 == 0 and len(gpx) > 0
+            add_case("E ezaudio mp3 one sample", "decode whole frames", "PASS" if ok else "FAIL",
                      f"n={len(gpx)} head={gpx[:4] if gpx else []}")
 
-    # Non-silent encode smoke: one full frame of music (not silence / not Huffman-pair)
+    # Non-silent encode smoke: one full frame of music (not silence)
     log("\n== MP3 non-silent filterbank smoke ==")
     fx = fixture("music", 44100, 1, 1152 / 44100.0)  # exactly one Layer III frame
     eza = os.path.join(WORK, "nz_music.eza")
@@ -486,7 +483,7 @@ def speed():
     log("FAIR: WAV = in-memory ezaudio codec vs in-memory stdlib wave/struct (BytesIO).")
     log("FAIR: MP3 = ezaudio absolute ms/op only (full filterbank path on non-silent clips).")
     log("NOT a speed ref: ffmpeg CLI spawn, disk open/write on the WAV reference path,")
-    log("  silent-frame / Huffman-pair MP3 fast paths.")
+    log("  the silent-frame MP3 fast path.")
     log("Fixtures: speech-like (voiced) + music-like (broadband); 16/44.1/48 kHz; mono+stereo;")
     log("  ~0.1–1 s. ratio > 1 means ezaudio slower than the in-process WAV reference.")
     log("No fair in-process MP3 reference in nixpkgs Python — absolute only, no fake ratio.")
