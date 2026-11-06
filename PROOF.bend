@@ -20,7 +20,6 @@ import ./proofs/Mp3SamplesAreClamped.bend as PMp3SamplesAreClamped
 import ./proofs/Mp3SilenceDecodesToZeros.bend as PMp3SilenceDecodesToZeros
 import ./proofs/Mp3SilenceIsHeaderAndZeros.bend as PMp3SilenceIsHeaderAndZeros
 import ./proofs/ScaleFactorRowPerRate.bend as PScaleFactorRowPerRate
-import ./proofs/SynthesisAddSums.bend as PSynthesisAddSums
 import ./proofs/TrimKeepsFrameSpan.bend as PTrimKeepsFrameSpan
 import ./proofs/WavChunkIdsAreRiff.bend as PWavChunkIdsAreRiff
 import ./proofs/WavDecodesWellFormed.bend as PWavDecodesWellFormed

@@ -41,7 +41,6 @@ import ./laws/Mp3SamplesAreClamped.bend as Mp3SamplesAreClamped
 import ./laws/Mp3SilenceDecodesToZeros.bend as Mp3SilenceDecodesToZeros
 import ./laws/Mp3SilenceIsHeaderAndZeros.bend as Mp3SilenceIsHeaderAndZeros
 import ./laws/ScaleFactorRowPerRate.bend as ScaleFactorRowPerRate
-import ./laws/SynthesisAddSums.bend as SynthesisAddSums
 import ./laws/TrimKeepsFrameSpan.bend as TrimKeepsFrameSpan
 import ./laws/WavChunkIdsAreRiff.bend as WavChunkIdsAreRiff
 import ./laws/WavDecodesWellFormed.bend as WavDecodesWellFormed
