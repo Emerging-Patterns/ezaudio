@@ -85,8 +85,23 @@ inputs. They target:
   `FF FB E0 C4` and 1044 bytes at 44100 Hz mono, `FF FB E0 04` and 1044 bytes
   for stereo, `FF FB E4 C4` and 960 bytes at 48000 Hz, `FF FB E8 C4` and 1440
   bytes at 32000 Hz. Decoding those byte strings yields 1152 zero binary32
-  samples per channel. Binary32 silence encodes as the mono frame. An empty
-  sample list, and a rate other than 32000, 44100, or 48000, encode as none.
+  samples per channel.
+- `encode_mp3` encodes a clip exactly when its rate is 32000, 44100 or 48000
+  Hz, it has one or two channels, and it has a sample, for every clip. For
+  every clip it encodes, at each rate, the stream is `samples / channels /
+  1152 + 2` whole 320 kbit/s frames, which hold every sample after the 576
+  samples of MDCT priming and the filterbank's 480: each frame starts with
+  the header `FF FB E0 C4` (`E4` at 48000 Hz, `E8` at 32000 Hz, `04` for
+  stereo), is as long as that header says, and nothing follows the last. At
+  44100 Hz a frame sets the pad bit (`E2`, 1045 bytes) when the remainders
+  of `144 * 320000 / 44100` add up to a byte, 44 of every 49 frames as in
+  LAME, so the stream is exactly 320 kbit/s. Every granule, for every
+  spectrum, has a part2_3_length that is the length of its Huffman bits and
+  at most its budget, which is at most 4095 bits, and those bits are its
+  first big_values pairs. Binary32 samples are clamped to [-1, 1] and NaN
+  reads as 0, for every word. Silence is the header and zeros: one zero
+  sample is `FF FB E0 C4` and 1044 bytes, then `FF FB E2 C4` and 1045 bytes,
+  at 44100 Hz mono; binary32 zeros of either sign encode the same way.
 
 Decode accepts long blocks only. Short blocks, a non-zero scale-factor
 compress, a bit reservoir, joint stereo, a CRC, the count1 region, preflag,

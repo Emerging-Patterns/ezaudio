@@ -12,18 +12,25 @@
 # Most laws are closed equalities on one fixture: they check one input. The
 # quantified ones hold for every input: decoded WAV clips are well formed
 # (WavDecodesWellFormed), partial frames do not encode and bytes after the
-# data chunk change nothing (WavRefusesBadInput, WavReadsOtherWriters), and
+# data chunk change nothing (WavRefusesBadInput, WavReadsOtherWriters),
 # fill and trim count samples without wrapping (FillRepeatsSample,
-# TrimKeepsFrameSpan). Full codec conformance is not claimed.
+# TrimKeepsFrameSpan), encode_mp3 encodes exactly the clips it can
+# (Mp3EncodeRefusesBadClips), its stream is whole frames with their headers
+# and lengths (Mp3FramesFollowHeaders), its granules' part2_3_length and
+# big_values agree with their bits (Mp3GranulesFitTheirFields), and its
+# binary32 samples are clamped (Mp3SamplesAreClamped). Full codec
+# conformance is not claimed.
 import Base
 import ./laws/ClipReadsBack.bend as ClipReadsBack
 import ./laws/ConcatNeedsMatchingClips.bend as ConcatNeedsMatchingClips
 import ./laws/CountDividesByChannels.bend as CountDividesByChannels
-import ./laws/EncoderNthReadsIndex.bend as EncoderNthReadsIndex
 import ./laws/FillRepeatsSample.bend as FillRepeatsSample
 import ./laws/Mp3DecodeRefusesUnsupported.bend as Mp3DecodeRefusesUnsupported
 import ./laws/Mp3EncodeRefusesBadClips.bend as Mp3EncodeRefusesBadClips
+import ./laws/Mp3FramesFollowHeaders.bend as Mp3FramesFollowHeaders
+import ./laws/Mp3GranulesFitTheirFields.bend as Mp3GranulesFitTheirFields
 import ./laws/Mp3HeaderFieldsRead.bend as Mp3HeaderFieldsRead
+import ./laws/Mp3SamplesAreClamped.bend as Mp3SamplesAreClamped
 import ./laws/Mp3SilenceDecodesToZeros.bend as Mp3SilenceDecodesToZeros
 import ./laws/Mp3SilenceIsHeaderAndZeros.bend as Mp3SilenceIsHeaderAndZeros
 import ./laws/ScaleFactorRowPerRate.bend as ScaleFactorRowPerRate

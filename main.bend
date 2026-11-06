@@ -245,7 +245,8 @@ def mp3.parsed(got: Maybe<&2, Mp3.Pcm>) -> Maybe<&2, Clip>:
 def decode_mp3(xs: List<&2, U32>) -> Maybe<&2, Clip>:
   mp3.parsed(Mp3.mp3.decode(xs))
 
-# MPEG-1 Layer III at 320 kbit/s. rates are 32000, 44100, and 48000. none when unfit or empty.
+# MPEG-1 Layer III at 320 kbit/s, samples / channels / 1152 + 2 frames. none unless the
+# rate is 32000, 44100 or 48000, there are one or two channels, and there is a sample.
 def encode_mp3(c: Clip) -> Maybe<&2, List<&2, U32>>:
   match c:
     case Clip{+hz, +nch, fmt, pcm}:

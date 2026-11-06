@@ -309,19 +309,6 @@ def ld.y(st: Ld) -> F32:
 def gain.of(+gg: U32) -> F32:
   ld.y(ld.go(8n, Ld{2048.0, (258 - gg : U32)}))
 
-def q.cp(ok: Bool, +nn: U32) -> U32:
-  match ok:
-    case True{}:
-      nn
-    case False{}:
-      8206
-
-def q.clip(+nn: U32) -> U32:
-  q.cp(U32.is_le(nn, 8206), nn)
-
-def q.mag(+xr: F32, +gain: F32) -> U32:
-  q.clip(F32.to_u32(F32.round(F32.pow((F32.abs(xr) / gain : F32), 0.75))))
-
 def q.sign(neg: Bool, +mag: U32) -> U32:
   match neg:
     case False{}:
@@ -329,15 +316,48 @@ def q.sign(neg: Bool, +mag: U32) -> U32:
     case True{}:
       (0 - mag : U32)
 
-def q.one(+xr: F32, +gain: F32) -> U32:
-  q.sign(F32.is_lt(xr, 0.0), q.mag(xr, gain))
+def q.pws(neg: Bool, +pp: F32) -> F32:
+  match neg:
+    case True{}:
+      F32.neg(pp)
+    case False{}:
+      pp
 
-def q.all(xs: List<&2, F32>, +gain: F32) -> List<&2, U32>:
+# |xr| ^ 0.75 with the sign of xr, once per granule rather than once per gain tried
+def q.pw(+xr: F32) -> F32:
+  q.pws(F32.is_lt(xr, 0.0), F32.pow(F32.abs(xr), 0.75))
+
+def pw.all(xs: List<&2, F32>) -> List<&2, F32>:
   match xs:
     case Nil{}:
       []
     case +hd <> tl:
-      q.one(hd, gain) <> q.all(tl, gain)
+      q.pw(hd) <> pw.all(tl)
+
+# 8206 = 15 + 8191, the largest value table 31 holds
+def q.big(fit: Bool, +vv: F32) -> U32:
+  match fit:
+    case True{}:
+      F32.to_u32(F32.round(vv))
+    case False{}:
+      8206
+
+def q.amp(+vv: F32) -> U32:
+  q.big(F32.is_lt(vv, 8206.0), vv)
+
+# ix = round((|xr| / gain) ^ 0.75), from |xr| ^ 0.75 and gain ^ -0.75
+def q.one(+pp: F32, +ginv: F32) -> U32:
+  q.sign(F32.is_lt(pp, 0.0), q.amp((F32.abs(pp) * ginv : F32)))
+
+def q.all(xs: List<&2, F32>, +ginv: F32) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      []
+    case +hd <> tl:
+      q.one(hd, ginv) <> q.all(tl, ginv)
+
+def gain.inv(+gg: U32) -> F32:
+  (1.0 / F32.pow(gain.of(gg), 0.75) : F32)
 
 def i.neg(+vv: U32) -> Bool:
   U32.is_ne((vv .&. 2147483648 : U32), 0)
@@ -430,238 +450,8 @@ def bv.last(st: Bv) -> U32:
 def bv.of(ix: List<&2, U32>, +hz: U32) -> U32:
   bv.last(bv.go(22n, Bv{ix, 0, 0}, hz, 0))
 
-# Huffman bits for one granule, newest bit first, running length, and whether the table fit
-type Hp is Data:
-  Hp{bits: List<&2, U32>, n: U32, ok: U32}
-
-def hp.bit(hp: Hp, +bit: U32) -> Hp:
-  match hp:
-    case Hp{_bs, _n, 0}:
-      Hp{[], 0, 0}
-    case Hp{bs, +n, _ok}:
-      Hp{bit <> bs, (n + 1 : U32), 1}
-
-def hp.field(hop: Nat, hp: Hp, +code: U32, +left: U32) -> Hp:
-  match hop:
-    case 0n:
-      hp
-    case 1n+p:
-      hp.field(p, hp.bit(hp, ((code >> U32.to_nat((left - 1 : U32)) : U32) .&. 1 : U32)), code,
-        (left - 1 : U32))
-
-def lim.p(z: Bool, +lin: U32) -> U32:
-  match z:
-    case True{}:
-      15
-    case False{}:
-      (15 + ((1 << U32.to_nat(lin) : U32)) : U32)
-
-def lim.of(+lin: U32) -> U32:
-  lim.p(U32.is_eq(lin, 0), lin)
-
-def ca.p(big: Bool, +aa: U32) -> U32:
-  match big:
-    case True{}:
-      15
-    case False{}:
-      aa
-
-def ca.of(+lin: U32, +aa: U32) -> U32:
-  ca.p(U32.is_ne(lin, 0) && U32.is_ge(aa, 15), aa)
-
-def hp.sgn(neg: Bool) -> U32:
-  match neg:
-    case True{}:
-      1
-    case False{}:
-      0
-
-def hp.sp(z: Bool, hp: Hp, +vv: U32) -> Hp:
-  match z:
-    case True{}:
-      hp
-    case False{}:
-      hp.bit(hp, hp.sgn(i.neg(vv)))
-
-def hp.sign(hp: Hp, +vv: U32, +aa: U32) -> Hp:
-  hp.sp(U32.is_eq(aa, 0), hp, vv)
-
-def hp.lp(z: Bool, hp: Hp, +lin: U32, +extra: U32) -> Hp:
-  match z:
-    case True{}:
-      hp.field(U32.to_nat(lin), hp, extra, lin)
-    case False{}:
-      hp
-
-def hp.lin(hp: Hp, +lin: U32, +aa: U32) -> Hp:
-  hp.lp(U32.is_ne(lin, 0) && U32.is_ge(aa, 15), hp, lin, (aa - 15 : U32))
-
-def hp.over(aa: U32, bb: U32, +lin: U32) -> Bool:
-  U32.is_ge(aa, lim.of(lin)) || U32.is_ge(bb, lim.of(lin))
-
-def hp.bad(z: Bool, hp: Hp) -> Hp:
-  match z:
-    case True{}:
-      Hp{[], 0, 0}
-    case False{}:
-      hp
-
-# a Huffman word handed back beside the Array.get just read
-type Wd is Type:
-  Wd{tab: Array<U32>, w: U32}
-
-def wd.of(got: Array<U32> & U32) -> Wd:
-  (tab, w) = got
-  Wd{tab, w}
-
-# tab.code is 8192 words. Each pair reads that table with Array.get.
-def word.of(codes: Array<U32>, +tab: U32, +ca: U32, +cb: U32) -> Array<U32> & U32:
-  Array.get(U32, codes, (((tab * 256 : U32) + (ca * 16 : U32) : U32) + cb : U32))
-
-def hp.use(z: Bool, hp: Hp, +w: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32) -> Hp:
-  match z:
-    case True{}:
-      Hp{[], 0, 0}
-    case False{}:
-      hp.sign(hp.lin(hp.sign(hp.lin(hp.field(U32.to_nat((w >> 16n : U32)), hp, (w .&. 65535 : U32),
-        (w >> 16n : U32)), lin, aa), av, aa), lin, bb), bv, bb)
-
-def hp.word(hp: Hp, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32, +w: U32) -> Hp:
-  hp.bad(hp.over(aa, bb, lin), hp.use(U32.is_eq((w >> 16n : U32), 0), hp, w, av, bv, aa, bb, lin))
-
-def hp.from(
-  got: Wd, hp: Hp, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32
-) -> Array<U32> & Hp:
-  match got:
-    case Wd{tab, +w}:
-      (tab, hp.word(hp, av, bv, aa, bb, lin, w))
-
-def hp.ready(
-  hp: Hp, +tab: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32, codes: Array<U32>
-) -> Array<U32> & Hp:
-  hp.from(wd.of(word.of(codes, tab, ca.of(lin, aa), ca.of(lin, bb))), hp, av, bv, aa, bb, lin)
-
-def hp.pair(
-  hp: Hp, +tab: U32, +av: U32, +bv: U32, codes: Array<U32>, +lins: List<&2, U32>
-) -> Array<U32> & Hp:
-  hp.ready(hp, tab, av, bv, i.abs(av), i.abs(bv), u.nth(lins, tab), codes)
-
-# the code table beside the bits just produced for one pair
-type Hs is Type:
-  Hs{tab: Array<U32>, hp: Hp}
-
-def hs.of(got: Array<U32> & Hp) -> Hs:
-  (tab, hp) = got
-  Hs{tab, hp}
-
-def hp.pairs(
-  xs: List<&2, U32>, got: Hs, +tab: U32, +lins: List<&2, U32>
-) -> Array<U32> & Hp:
-  match xs got:
-    case Nil{} Hs{codes, hp}:
-      (codes, hp)
-    case +aa <> +bb <> tl Hs{codes, hp}:
-      hp.pairs(tl, hs.of(hp.pair(hp, tab, aa, bb, codes, lins)), tab, lins)
-    case _ Hs{codes, _hp}:
-      (codes, Hp{[], 0, 0})
-
-def hp.cands() -> List<&2, U32>:
-  [15, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-
-# shortest Huffman table that encoded the granule
-type Best is Data:
-  Best{tab: U32, nn: U32, bits: List<&2, U32>, ok: U32}
-
-def best.or(a: Bool, b: Bool) -> Bool:
-  match a:
-    case True{}:
-      True{}
-    case False{}:
-      b
-
-def best.and(a: Bool, b: Bool) -> Bool:
-  match a:
-    case False{}:
-      False{}
-    case True{}:
-      b
-
-def best.better(+bok: U32, +bn: U32, +ok: U32, +nn: U32) -> Bool:
-  best.and(U32.is_eq(ok, 1), best.or(U32.is_eq(bok, 0), U32.is_lt(nn, bn)))
-
-def best.keep(
-  take: Bool, +tab: U32, +nn: U32, bits: List<&2, U32>, +bt: U32, +bn: U32,
-  bb: List<&2, U32>, +bok: U32
-) -> Best:
-  match take:
-    case True{}:
-      Best{tab, nn, bits, 1}
-    case False{}:
-      Best{bt, bn, bb, bok}
-
-def best.from(b: Best, +tab: U32, +ok: U32, +nn: U32, bits: List<&2, U32>) -> Best:
-  match b:
-    case Best{+bt, +bn, bb, +bok}:
-      best.keep(best.better(bok, bn, ok, nn), tab, nn, bits, bt, bn, bb, bok)
-
-def best.got(b: Best, +tab: U32, hp: Hp) -> Best:
-  match hp:
-    case Hp{+bits, +n, ok}:
-      best.from(b, tab, ok, n, bits)
-
-def best.pull(b: Best, +tab: U32, got: Hs) -> Array<U32> & Best:
-  match got:
-    case Hs{codes, hp}:
-      (codes, best.got(b, tab, hp))
-
-def best.one(
-  b: Best, +tab: U32, ix: List<&2, U32>, codes: Array<U32>, +lins: List<&2, U32>
-) -> Array<U32> & Best:
-  best.pull(b, tab, hs.of(hp.pairs(ix, Hs{codes, Hp{[], 0, 1}}, tab, lins)))
-
-def best.step(
-  b: Best, +tab: U32, +ix: List<&2, U32>, codes: Array<U32>, +lins: List<&2, U32>
-) -> Array<U32> & Best:
-  best.one(b, tab, ix, codes, lins)
-
-# the code table beside the shortest table so far
-type Bs is Type:
-  Bs{tab: Array<U32>, best: Best}
-
-def bs.of(got: Array<U32> & Best) -> Bs:
-  (tab, best) = got
-  Bs{tab, best}
-
-def best.go(
-  cs: List<&2, U32>, +ix: List<&2, U32>, got: Bs, +lins: List<&2, U32>
-) -> Array<U32> & Best:
-  match cs got:
-    case Nil{} Bs{codes, won}:
-      (codes, won)
-    case +hd <> tl Bs{codes, won}:
-      best.go(tl, ix, bs.of(best.step(won, hd, ix, codes, lins)), lins)
-
-def code.put(xs: List<&2, U32>, a: Array<U32>, +ii: U32) -> Array<U32>:
-  match xs:
-    case Nil{}:
-      a
-    case +hd <> tl:
-      code.put(tl, Array.set(U32, a, ii, hd), (ii + 1 : U32))
-
-# 2^13 slots: tab.code is 8192 words, filled in list order.
-def code.of() -> Array<U32>:
-  code.put(Tab.tab.code(), Array.new(U32, 13n, 0), 0)
-
-def best.fin(got: Bs) -> Best:
-  match got:
-    case Bs{_tab, best}:
-      best
-
-def best.of(ix: List<&2, U32>) -> Best:
-  best.fin(bs.of(best.go(hp.cands(), ix, Bs{code.of(), Best{0, 0, [], 0}}, Tab.tab.lin())))
-
-def ix.p(z: Bool, +mm: U32, +aa: U32) -> U32:
-  match z:
+def ix.p(zz: Bool, +mm: U32, +aa: U32) -> U32:
+  match zz:
     case True{}:
       aa
     case False{}:
@@ -677,89 +467,499 @@ def ix.max(xs: List<&2, U32>, +mm: U32) -> U32:
     case +hd <> tl:
       ix.max(tl, ix.up(mm, i.abs(hd)))
 
-# binary search for the finest global_gain that fits the bit budget
-type Sr is Data:
-  Sr{lo: U32, hi: U32, gg: U32, tab: U32, bits: List<&2, U32>, ok: U32}
+def b.u(bb: Bool) -> U32:
+  match bb:
+    case True{}:
+      1
+    case False{}:
+      0
 
-def sr.g1(z: Bool, +mx: U32) -> Bool:
-  match z:
+# Huffman words of tables 13, 15, 16 and 24 (16-23 and 24-31 share codes), 2^10 leaves
+type Ht is Data:
+  Hleaf{w: U32}
+  Hnode{lo: Ht, hi: Ht}
+
+def ht.leaves(xs: List<&2, U32>) -> List<&2, Ht>:
+  match xs:
+    case Nil{}:
+      []
+    case +hd <> tl:
+      Hleaf{hd} <> ht.leaves(tl)
+
+def ht.pair(xs: List<&2, Ht>) -> List<&2, Ht>:
+  match xs:
+    case aa <> bb <> tl:
+      Hnode{aa, bb} <> ht.pair(tl)
+    case _:
+      []
+
+def ht.up(hop: Nat, xs: List<&2, Ht>) -> List<&2, Ht>:
+  match hop:
+    case 0n:
+      xs
+    case 1n+p:
+      ht.up(p, ht.pair(xs))
+
+def ht.root(xs: List<&2, Ht>) -> Ht:
+  match xs:
+    case Nil{}:
+      Hleaf{0}
+    case hd <> _tl:
+      hd
+
+def ht.cat(
+  aa: List<&2, U32>,
+  bb: List<&2, U32>,
+  cc: List<&2, U32>,
+  dd: List<&2, U32>
+) -> List<&2, U32>:
+  List.append(&2, U32, aa, List.append(&2, U32, bb, List.append(&2, U32, cc, dd)))
+
+# built once per clip and shared by every granule
+def ht.of() -> Ht:
+  ht.root(ht.up(10n, ht.leaves(ht.cat(Tab.tab.code.p13(), Tab.tab.code.p15(), Tab.tab.code.p16(),
+    Tab.tab.code.p24()))))
+
+def ht.sel(bit: Bool, lo: Ht, hi: Ht) -> Ht:
+  match bit:
+    case True{}:
+      hi
+    case False{}:
+      lo
+
+# the leaf at ix, its high bit first
+def ht.get(hop: Nat, tt: Ht, +ix: U32) -> U32:
+  match hop tt:
+    case _ Hleaf{w}:
+      w
+    case 1n+(+p) Hnode{lo, hi}:
+      ht.get(p, ht.sel(U32.is_ne(((ix >> p : U32) .&. 1 : U32), 0), lo, hi), ix)
+    case 0n Hnode{_lo, _hi}:
+      0
+
+# the subtree of a table: 13, 15, 16-23, 24-31
+def ht.hi(big: Bool) -> U32:
+  match big:
+    case True{}:
+      3
+    case False{}:
+      2
+
+def ht.slot(+tab: U32) -> U32:
+  match tab:
+    case 13:
+      0
+    case 15:
+      1
+    case _:
+      ht.hi(U32.is_ge(tab, 24))
+
+# a code word: its length in the high half, the code in the low half
+def ht.word(+ht: Ht, +slot: U32, +ca: U32, +cb: U32) -> U32:
+  ht.get(10n, ht, (((slot * 256 : U32) + (ca * 16 : U32) : U32) + cb : U32))
+
+def lin.of(+tab: U32) -> U32:
+  u.nth(Tab.tab.lin(), tab)
+
+# values that fit a table: 0-15 without linbits, below 15 + 2^linbits with them
+def lim.p(zz: Bool, +lin: U32) -> U32:
+  match zz:
+    case True{}:
+      16
+    case False{}:
+      (15 + ((1 << U32.to_nat(lin) : U32)) : U32)
+
+def lim.of(+lin: U32) -> U32:
+  lim.p(U32.is_eq(lin, 0), lin)
+
+# a value of 15 and up is the escape 15 plus linbits
+def esc.of(+lin: U32, +aa: U32) -> Bool:
+  Bool.and(U32.is_ne(lin, 0), U32.is_ge(aa, 15))
+
+def cap.p(big: Bool, +aa: U32) -> U32:
+  match big:
+    case True{}:
+      15
+    case False{}:
+      aa
+
+def cap.of(+lin: U32, +aa: U32) -> U32:
+  cap.p(esc.of(lin, aa), aa)
+
+# bits newest first: a field pushed from its high bit
+def hb.field(hop: Nat, bs: List<&2, U32>, +val: U32) -> List<&2, U32>:
+  match hop:
+    case 0n:
+      bs
+    case 1n+(+p):
+      hb.field(p, ((val >> p : U32) .&. 1 : U32) <> bs, val)
+
+def hb.lin(zz: Bool, bs: List<&2, U32>, +lin: U32, +ext: U32) -> List<&2, U32>:
+  match zz:
+    case True{}:
+      hb.field(U32.to_nat(lin), bs, ext)
+    case False{}:
+      bs
+
+def hb.sgn(zz: Bool, bs: List<&2, U32>, +vv: U32) -> List<&2, U32>:
+  match zz:
+    case True{}:
+      b.u(i.neg(vv)) <> bs
+    case False{}:
+      bs
+
+# ISO/IEC 11172-3 2.4.2.7: the pair's code word, then x's linbits and sign, then y's
+def hb.pair(
+  bs: List<&2, U32>,
+  +ww: U32,
+  +av: U32,
+  +bv: U32,
+  +aa: U32,
+  +bb: U32,
+  +lin: U32
+) -> List<&2, U32>:
+  hb.sgn(U32.is_ne(bb, 0), hb.lin(esc.of(lin, bb), hb.sgn(U32.is_ne(aa, 0), hb.lin(esc.of(lin, aa),
+    hb.field(U32.to_nat((ww >> 16n : U32)), bs, (ww .&. 65535 : U32)), lin, (aa - 15 : U32)), av), lin,
+    (bb - 15 : U32)), bv)
+
+# Huffman bits of a granule so far, newest first, and whether every pair fit
+type Hk is Data:
+  Hk{bits: List<&2, U32>, ok: Bool}
+
+def hk.put(ok: Bool, bits: List<&2, U32>) -> Hk:
+  match ok:
+    case True{}:
+      Hk{bits, True{}}
+    case False{}:
+      Hk{[], False{}}
+
+def hk.fits(+ww: U32, +aa: U32, +bb: U32, +lin: U32) -> Bool:
+  Bool.and(U32.is_ne((ww >> 16n : U32), 0), Bool.and(U32.is_lt(aa, lim.of(lin)), U32.is_lt(bb, lim.of(lin))))
+
+def hk.word(st: Hk, +ww: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32, +lin: U32) -> Hk:
+  match st:
+    case Hk{bs, ok}:
+      hk.put(Bool.and(ok, hk.fits(ww, aa, bb, lin)), hb.pair(bs, ww, av, bv, aa, bb, lin))
+
+def hk.abs(st: Hk, +ht: Ht, +tab: U32, +lin: U32, +av: U32, +bv: U32, +aa: U32, +bb: U32) -> Hk:
+  hk.word(st, ht.word(ht, ht.slot(tab), cap.of(lin, aa), cap.of(lin, bb)), av, bv, aa, bb, lin)
+
+def hk.go(xs: List<&2, U32>, +ht: Ht, +tab: U32, +lin: U32, st: Hk) -> Hk:
+  match xs:
+    case Nil{}:
+      st
+    case +av <> +bv <> tl:
+      hk.go(tl, ht, tab, lin, hk.abs(st, ht, tab, lin, av, bv, i.abs(av), i.abs(bv)))
+    case _:
+      Hk{[], False{}}
+
+def hk.fin(st: Hk) -> Maybe<&2, List<&2, U32>>:
+  match st:
+    case Hk{bs, True{}}:
+      Some{List.reverse(&2, U32, bs)}
+    case Hk{_bs, False{}}:
+      None{}
+
+# the big_values pairs in table tab, in stream order; none when a value or pair does not fit it
+def hf.code(+ht: Ht, xs: List<&2, U32>, +tab: U32) -> Maybe<&2, List<&2, U32>>:
+  hk.fin(hk.go(xs, ht, tab, lin.of(tab), Hk{[], True{}}))
+
+# a count of one table's bits before linbits: code lengths and signs, and the escapes
+type Hcnt is Data:
+  Hcnt{nn: U32, esc: U32, ok: Bool}
+
+def hc.esc(grp: Bool, +aa: U32) -> U32:
+  match grp:
+    case True{}:
+      b.u(U32.is_ge(aa, 15))
+    case False{}:
+      0
+
+def hc.cap(grp: Bool, +aa: U32) -> U32:
+  match grp:
+    case True{}:
+      cap.p(U32.is_ge(aa, 15), aa)
+    case False{}:
+      aa
+
+def hc.fit(grp: Bool, +aa: U32, +bb: U32) -> Bool:
+  match grp:
+    case True{}:
+      True{}
+    case False{}:
+      Bool.and(U32.is_le(aa, 15), U32.is_le(bb, 15))
+
+def hc.add(st: Hcnt, +ww: U32, +aa: U32, +bb: U32, +ea: U32, +eb: U32, fit: Bool) -> Hcnt:
+  match st:
+    case Hcnt{+nn, +esc, ok}:
+      Hcnt{(((nn + (ww >> 16n : U32) : U32) + b.u(U32.is_ne(aa, 0)) : U32) + b.u(U32.is_ne(bb, 0)) : U32),
+        ((esc + ea : U32) + eb : U32), Bool.and(ok, Bool.and(fit, U32.is_ne((ww >> 16n : U32), 0)))}
+
+def hc.pair(st: Hcnt, +ht: Ht, +slot: U32, +grp: Bool, +aa: U32, +bb: U32) -> Hcnt:
+  hc.add(st, ht.word(ht, slot, hc.cap(grp, aa), hc.cap(grp, bb)), aa, bb, hc.esc(grp, aa), hc.esc(grp, bb),
+    hc.fit(grp, aa, bb))
+
+# grp: the table has linbits, so 15 and up count as an escape
+def hc.go(xs: List<&2, U32>, +ht: Ht, +slot: U32, +grp: Bool, st: Hcnt) -> Hcnt:
+  match xs:
+    case Nil{}:
+      st
+    case +av <> +bv <> tl:
+      hc.go(tl, ht, slot, grp, hc.pair(st, ht, slot, grp, i.abs(av), i.abs(bv)))
+    case _:
+      Hcnt{0, 0, False{}}
+
+# a candidate table and its bit count
+type Cand is Data:
+  Cand{tab: U32, nn: U32, ok: Bool}
+
+def cd.of(+tab: U32, +lin: U32, st: Hcnt) -> Cand:
+  match st:
+    case Hcnt{+nn, +esc, ok}:
+      Cand{tab, (nn + (lin * esc : U32) : U32), ok}
+
+def cd.take(bok: Bool, bb: Bool) -> Bool:
+  match bok:
     case False{}:
       False{}
     case True{}:
-      U32.is_lt(mx, 8000)
+      bb
 
-def sr.good(+bk: U32, +nn: U32, +bud: U32, +mx: U32) -> Bool:
-  sr.g1(U32.is_eq(bk, 1) && U32.is_le(nn, bud), mx)
+def cd.keep(take: Bool, aa: Cand, bb: Cand) -> Cand:
+  match take:
+    case True{}:
+      bb
+    case False{}:
+      aa
+
+def cd.cmp(+an: U32, aok: Bool, bok: Bool, +bn: U32) -> Bool:
+  match aok:
+    case False{}:
+      bok
+    case True{}:
+      cd.take(bok, U32.is_lt(bn, an))
+
+# the first candidate unless the second fits and is strictly shorter
+def cd.min(aa: Cand, bb: Cand) -> Cand:
+  match aa bb:
+    case Cand{+at, +an, +aok} Cand{+bt, +bn, +bok}:
+      cd.keep(cd.cmp(an, aok, bok, bn), Cand{at, an, aok}, Cand{bt, bn, bok})
+
+# tables 15 then 13: no linbits, values up to 15
+def cd.plain(small: Bool, +ht: Ht, +xs: List<&2, U32>) -> Cand:
+  match small:
+    case True{}:
+      cd.min(cd.of(15, 0, hc.go(xs, ht, 1, False{}, Hcnt{0, 0, True{}})),
+        cd.of(13, 0, hc.go(xs, ht, 0, False{}, Hcnt{0, 0, True{}})))
+    case False{}:
+      Cand{0, 0, False{}}
+
+def grp.keep(+got: U32, fit: Bool, +tab: U32) -> U32:
+  match fit:
+    case True{}:
+      ix.p(U32.is_eq(got, 0), got, tab)
+    case False{}:
+      got
+
+# the first table of a group whose linbits hold the largest value, or 0
+def grp.tab(hop: Nat, +tab: U32, +mx: U32, +got: U32) -> U32:
+  match hop:
+    case 0n:
+      got
+    case 1n+p:
+      grp.tab(p, (tab + 1 : U32), mx, grp.keep(got, U32.is_lt(mx, lim.of(lin.of(tab))), tab))
+
+def cd.at(none: Bool, +tab: U32, +ht: Ht, +xs: List<&2, U32>, +slot: U32) -> Cand:
+  match none:
+    case True{}:
+      Cand{0, 0, False{}}
+    case False{}:
+      cd.of(tab, lin.of(tab), hc.go(xs, ht, slot, True{}, Hcnt{0, 0, True{}}))
+
+# tables sharing one code differ by linbits: the fewest that hold mx cost the least
+def cd.grp(+tab: U32, +ht: Ht, +xs: List<&2, U32>, +slot: U32) -> Cand:
+  cd.at(U32.is_eq(tab, 0), tab, ht, xs, slot)
+
+# ISO/IEC 11172-3 tables 13, 15, 16-23, 24-31: the cheapest that codes the pairs
+def cd.best(+ht: Ht, +xs: List<&2, U32>, +mx: U32) -> Cand:
+  cd.min(cd.min(cd.plain(U32.is_le(mx, 15), ht, xs), cd.grp(grp.tab(8n, 16, mx, 0), ht, xs, 2)),
+    cd.grp(grp.tab(8n, 24, mx, 0), ht, xs, 3))
+
+# binary search for the finest global_gain that fits the bit budget, with its table and values
+type Sr is Data:
+  Sr{lo: U32, hi: U32, gg: U32, tab: U32, ix: List<&2, U32>, ok: Bool}
 
 def sr.fit(
-  okb: Bool, +lo: U32, +hi: U32, +mid: U32, +tt: U32, bits: List<&2, U32>, +ogg: U32, +ot: U32,
-  obits: List<&2, U32>, +ook: U32
+  good: Bool,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +tab: U32,
+  ix: List<&2, U32>,
+  +ogg: U32,
+  +otab: U32,
+  oix: List<&2, U32>,
+  ook: Bool
 ) -> Sr:
-  match okb:
+  match good:
     case True{}:
-      Sr{lo, (mid - 1 : U32), mid, tt, bits, 1}
+      Sr{lo, (mid - 1 : U32), mid, tab, ix, True{}}
     case False{}:
-      Sr{(mid + 1 : U32), hi, ogg, ot, obits, ook}
+      Sr{(mid + 1 : U32), hi, ogg, otab, oix, ook}
 
-def sr.best(
-  b: Best, +mx: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32, +ogg: U32, +ot: U32,
-  obits: List<&2, U32>, +ook: U32
+def sr.good(ok: Bool, +nn: U32, +bud: U32, +mx: U32) -> Bool:
+  Bool.and(ok, Bool.and(U32.is_le(nn, bud), U32.is_lt(mx, 8000)))
+
+def sr.cd(
+  cd: Cand,
+  +mx: U32,
+  +bud: U32,
+  ix: List<&2, U32>,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +ogg: U32,
+  +otab: U32,
+  oix: List<&2, U32>,
+  ook: Bool
 ) -> Sr:
-  match b:
-    case Best{tt, nn, bb, bk}:
-      sr.fit(sr.good(bk, nn, bud, mx), lo, hi, mid, tt, bb, ogg, ot, obits, ook)
+  match cd:
+    case Cand{+tab, +nn, ok}:
+      sr.fit(sr.good(ok, nn, bud, mx), lo, hi, mid, tab, ix, ogg, otab, oix, ook)
+
+def sr.mx(
+  +mx: U32,
+  +xs: List<&2, U32>,
+  +ht: Ht,
+  +bud: U32,
+  ix: List<&2, U32>,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +ogg: U32,
+  +otab: U32,
+  oix: List<&2, U32>,
+  ook: Bool
+) -> Sr:
+  sr.cd(cd.best(ht, xs, mx), mx, bud, ix, lo, hi, mid, ogg, otab, oix, ook)
+
+def sr.pairs(
+  +xs: List<&2, U32>,
+  ix: List<&2, U32>,
+  +ht: Ht,
+  +bud: U32,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +ogg: U32,
+  +otab: U32,
+  oix: List<&2, U32>,
+  ook: Bool
+) -> Sr:
+  sr.mx(ix.max(xs, 0), xs, ht, bud, ix, lo, hi, mid, ogg, otab, oix, ook)
 
 def sr.zero(
-  z: Bool, +ix: List<&2, U32>, +mx: U32, +big: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32,
-  +ogg: U32, +ot: U32, obits: List<&2, U32>, +ook: U32
+  zz: Bool,
+  +big: U32,
+  +ix: List<&2, U32>,
+  +ht: Ht,
+  +bud: U32,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +ogg: U32,
+  +otab: U32,
+  oix: List<&2, U32>,
+  ook: Bool
 ) -> Sr:
-  match z:
+  match zz:
     case True{}:
-      sr.fit(True{}, lo, hi, mid, 0, [], ogg, ot, obits, ook)
+      sr.fit(True{}, lo, hi, mid, 0, ix, ogg, otab, oix, ook)
     case False{}:
-      sr.best(best.of(take.u(U32.to_nat((big * 2 : U32)), ix, [])), mx, bud, lo, hi, mid, ogg, ot,
-        obits, ook)
+      sr.pairs(take.u(U32.to_nat((big * 2 : U32)), ix, []), ix, ht, bud, lo, hi, mid, ogg, otab, oix, ook)
 
-def sr.ix(
-  +ix: List<&2, U32>, +hz: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32, +ogg: U32, +ot: U32,
-  obits: List<&2, U32>, +ook: U32
+def sr.big(
+  +big: U32,
+  +ix: List<&2, U32>,
+  +ht: Ht,
+  +bud: U32,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +ogg: U32,
+  +otab: U32,
+  oix: List<&2, U32>,
+  ook: Bool
 ) -> Sr:
-  sr.zero(U32.is_eq(bv.of(ix, hz), 0), ix, ix.max(ix, 0), bv.of(ix, hz), bud, lo, hi, mid, ogg, ot,
-    obits, ook)
+  sr.zero(U32.is_eq(big, 0), big, ix, ht, bud, lo, hi, mid, ogg, otab, oix, ook)
+
+def sr.q(
+  +ix: List<&2, U32>,
+  +hz: U32,
+  +bud: U32,
+  +ht: Ht,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +ogg: U32,
+  +otab: U32,
+  oix: List<&2, U32>,
+  ook: Bool
+) -> Sr:
+  sr.big(bv.of(ix, hz), ix, ht, bud, lo, hi, mid, ogg, otab, oix, ook)
 
 def sr.try(
-  +spec: List<&2, F32>, +hz: U32, +bud: U32, +lo: U32, +hi: U32, +mid: U32, +ogg: U32, +ot: U32,
-  obits: List<&2, U32>, +ook: U32
+  +spec: List<&2, F32>,
+  +hz: U32,
+  +bud: U32,
+  +ht: Ht,
+  +lo: U32,
+  +hi: U32,
+  +mid: U32,
+  +gg: U32,
+  +tab: U32,
+  ix: List<&2, U32>,
+  ok: Bool
 ) -> Sr:
-  sr.ix(q.all(spec, gain.of(mid)), hz, bud, lo, hi, mid, ogg, ot, obits, ook)
+  sr.q(q.all(spec, gain.inv(mid)), hz, bud, ht, lo, hi, mid, gg, tab, ix, ok)
 
 def sr.live(
-  go: Bool, +spec: List<&2, F32>, +hz: U32, +bud: U32, +lo: U32, +hi: U32, +gg: U32, +tab: U32,
-  bits: List<&2, U32>, +ok: U32
+  go: Bool,
+  +spec: List<&2, F32>,
+  +hz: U32,
+  +bud: U32,
+  +ht: Ht,
+  +lo: U32,
+  +hi: U32,
+  +gg: U32,
+  +tab: U32,
+  ix: List<&2, U32>,
+  ok: Bool
 ) -> Sr:
   match go:
     case False{}:
-      Sr{lo, hi, gg, tab, bits, ok}
+      Sr{lo, hi, gg, tab, ix, ok}
     case True{}:
-      sr.try(spec, hz, bud, lo, hi, U32.div((lo + hi : U32), 2), gg, tab, bits, ok)
+      sr.try(spec, hz, bud, ht, lo, hi, U32.div((lo + hi : U32), 2), gg, tab, ix, ok)
 
-def sr.step(spec: List<&2, F32>, +hz: U32, +bud: U32, st: Sr) -> Sr:
+def sr.step(+spec: List<&2, F32>, +hz: U32, +bud: U32, +ht: Ht, st: Sr) -> Sr:
   match st:
-    case Sr{+lo, +hi, +gg, +tab, bits, +ok}:
-      sr.live(U32.is_le(lo, hi), spec, hz, bud, lo, hi, gg, tab, bits, ok)
+    case Sr{+lo, +hi, +gg, +tab, ix, ok}:
+      sr.live(U32.is_le(lo, hi), spec, hz, bud, ht, lo, hi, gg, tab, ix, ok)
 
-def sr.go(hop: Nat, +spec: List<&2, F32>, +hz: U32, +bud: U32, st: Sr) -> Sr:
+# 8 halvings settle a global_gain in 0..255; spec holds |xr| ^ 0.75
+def sr.go(hop: Nat, +spec: List<&2, F32>, +hz: U32, +bud: U32, +ht: Ht, st: Sr) -> Sr:
   match hop:
     case 0n:
       st
     case 1n+p:
-      sr.go(p, spec, hz, bud, sr.step(spec, hz, bud, st))
+      sr.go(p, spec, hz, bud, ht, sr.step(spec, hz, bud, ht, st))
 
-def sr.run(spec: List<&2, F32>, +hz: U32, +bud: U32) -> Sr:
-  sr.go(8n, spec, hz, bud, Sr{0, 255, 0, 0, [], 0})
+def sr.run(+spec: List<&2, F32>, +hz: U32, +bud: U32, +ht: Ht) -> Sr:
+  sr.go(8n, pw.all(spec), hz, bud, ht, Sr{0, 255, 0, 0, [], False{}})
 
-def pk.p(z: Bool, +mm: F32, +aa: F32) -> F32:
-  match z:
+def pk.p(zz: Bool, +mm: F32, +aa: F32) -> F32:
+  match zz:
     case True{}:
       aa
     case False{}:
@@ -775,8 +975,8 @@ def pk.go(xs: List<&2, F32>, +mm: F32) -> F32:
     case +hd <> tl:
       pk.go(tl, pk.up(mm, F32.abs(hd)))
 
-def dz.one(z: Bool, +vv: F32) -> F32:
-  match z:
+def dz.one(zz: Bool, +vv: F32) -> F32:
+  match zz:
     case True{}:
       0.0
     case False{}:
@@ -790,82 +990,131 @@ def dz.apply(xs: List<&2, F32>, +thr: F32) -> List<&2, F32>:
       dz.one(F32.is_lt(F32.abs(hd), thr), hd) <> dz.apply(tl, thr)
 
 def dz.on(
-  done: Bool, st: Sr, +spec: List<&2, F32>, +pk: F32, +thr: U32, +hz: U32, +bud: U32
+  done: Bool,
+  st: Sr,
+  +spec: List<&2, F32>,
+  +pk: F32,
+  +thr: U32,
+  +hz: U32,
+  +bud: U32,
+  +ht: Ht
 ) -> Sr:
   match done:
     case True{}:
       st
     case False{}:
-      sr.run(dz.apply(spec, (pk * f32.bits(thr) : F32)), hz, bud)
+      sr.run(dz.apply(spec, (pk * f32.bits(thr) : F32)), hz, bud, ht)
 
-def dz.try(st: Sr, +spec: List<&2, F32>, +pk: F32, +thr: U32, +hz: U32, +bud: U32) -> Sr:
+def dz.try(st: Sr, +spec: List<&2, F32>, +pk: F32, +thr: U32, +hz: U32, +bud: U32, +ht: Ht) -> Sr:
   match st:
-    case Sr{+lo, +hi, +gg, +tab, bits, +ok}:
-      dz.on(U32.is_eq(ok, 1), Sr{lo, hi, gg, tab, bits, ok}, spec, pk, thr, hz, bud)
+    case Sr{+lo, +hi, +gg, +tab, ix, +ok}:
+      dz.on(ok, Sr{lo, hi, gg, tab, ix, ok}, spec, pk, thr, hz, bud, ht)
 
+# a dead zone below thr * peak, wider until a gain fits
 def dz.go(
-  thrs: List<&2, U32>, +spec: List<&2, F32>, +pk: F32, +hz: U32, +bud: U32, st: Sr
+  thrs: List<&2, U32>,
+  +spec: List<&2, F32>,
+  +pk: F32,
+  +hz: U32,
+  +bud: U32,
+  +ht: Ht,
+  st: Sr
 ) -> Sr:
   match thrs:
     case Nil{}:
       st
     case +hd <> tl:
-      dz.go(tl, spec, pk, hz, bud, dz.try(st, spec, pk, hd, hz, bud))
+      dz.go(tl, spec, pk, hz, bud, ht, dz.try(st, spec, pk, hd, hz, bud, ht))
 
 def dz.thrs() -> List<&2, U32>:
   [953267991, 981668463, 994352038, 1008981770, 1022739087, 1036831949, 1045220557, 1053609165]
 
-def dz.maybe(tiny: Bool, +spec: List<&2, F32>, +pk: F32, +hz: U32, +bud: U32) -> Sr:
-  match tiny:
-    case True{}:
-      Sr{0, 0, 0, 0, [], 1}
-    case False{}:
-      dz.go(dz.thrs(), spec, pk, hz, bud, Sr{0, 255, 0, 0, [], 0})
-
-def dz.run(+spec: List<&2, F32>, +hz: U32, +bud: U32) -> Sr:
-  dz.maybe(F32.is_lt(pk.go(spec, 0.0), f32.bits(730643660)), spec, pk.go(spec, 0.0), hz, bud)
-
-# one quantized granule: part2_3_length, big_values, global_gain, table, bits
+# one coded granule: part2_3_length, big_values, global_gain, table, the quantized values, the bits
 type Gr is Data:
-  Gr{part: U32, big: U32, gain: U32, tab: U32, bits: List<&2, U32>}
+  Gr{part: U32, big: U32, gain: U32, tab: U32, ix: List<&2, U32>, bits: List<&2, U32>}
 
-# reversed bit list and its length
-type Rv is Data:
-  Rv{xs: List<&2, U32>, n: U32}
+def gr.part(gg: Gr) -> U32:
+  match gg:
+    case Gr{part, _big, _gain, _tab, _ix, _bits}:
+      part
 
-def rv.go(xs: List<&2, U32>, acc: List<&2, U32>, +n: U32) -> Rv:
-  match xs:
-    case Nil{}:
-      Rv{acc, n}
-    case +hd <> tl:
-      rv.go(tl, hd <> acc, (n + 1 : U32))
+def gr.big(gg: Gr) -> U32:
+  match gg:
+    case Gr{_part, big, _gain, _tab, _ix, _bits}:
+      big
 
-def gr.from(r: Rv, +gg: U32, +tab: U32, +big: U32) -> Gr:
-  match r:
-    case Rv{xs, +n}:
-      Gr{n, big, gg, tab, xs}
+def gr.tab(gg: Gr) -> U32:
+  match gg:
+    case Gr{_part, _big, _gain, tab, _ix, _bits}:
+      tab
 
-def gr.u(z: Bool, +gg: U32, +tab: U32, bits: List<&2, U32>, +big: U32) -> Gr:
-  match z:
-    case False{}:
-      Gr{0, 0, 0, 0, []}
+def gr.ix(gg: Gr) -> List<&2, U32>:
+  match gg:
+    case Gr{_part, _big, _gain, _tab, ix, _bits}:
+      ix
+
+def gr.bits(gg: Gr) -> List<&2, U32>:
+  match gg:
+    case Gr{_part, _big, _gain, _tab, _ix, bits}:
+      bits
+
+# a granule of zeros: no bits, no big_values
+def gr.zero() -> Gr:
+  Gr{0, 0, 0, 0, [], []}
+
+def gr.fit(ok: Bool, +bits: List<&2, U32>, +big: U32, ix: List<&2, U32>, +gg: U32, +tab: U32) -> Gr:
+  match ok:
     case True{}:
-      gr.from(rv.go(bits, [], 0), gg, tab, big)
-
-def gr.use(z: Bool, +gg: U32, +tab: U32, bits: List<&2, U32>, ix: List<&2, U32>, +hz: U32) -> Gr:
-  match z:
+      Gr{U32.from_nat(List.length(&2, U32, bits)), big, gg, tab, ix, bits}
     case False{}:
-      Gr{0, 0, 0, 0, []}
-    case True{}:
-      gr.u(True{}, gg, tab, bits, bv.of(ix, hz))
+      gr.zero()
 
-def gr.pack(st: Sr, +spec: List<&2, F32>, +hz: U32) -> Gr:
+def gr.code(
+  got: Maybe<&2, List<&2, U32>>,
+  +big: U32,
+  ix: List<&2, U32>,
+  +gg: U32,
+  +tab: U32,
+  +bud: U32
+) -> Gr:
+  match got:
+    case None{}:
+      gr.zero()
+    case Some{+bits}:
+      gr.fit(U32.is_le(U32.from_nat(List.length(&2, U32, bits)), bud), bits, big, ix, gg, tab)
+
+def gr.big.of(+big: U32, +ht: Ht, +ix: List<&2, U32>, +gg: U32, +tab: U32, +bud: U32) -> Gr:
+  gr.code(hf.code(ht, take.u(U32.to_nat((big * 2 : U32)), ix, []), tab), big, ix, gg, tab, bud)
+
+# big_values and the bits both come from ix: part2_3_length is the length of those bits
+def gr.make(+ht: Ht, +ix: List<&2, U32>, +gg: U32, +tab: U32, +hz: U32, +bud: U32) -> Gr:
+  gr.big.of(bv.of(ix, hz), ht, ix, gg, tab, bud)
+
+def gr.ok(ok: Bool, +ht: Ht, ix: List<&2, U32>, +gg: U32, +tab: U32, +hz: U32, +bud: U32) -> Gr:
+  match ok:
+    case True{}:
+      gr.make(ht, ix, gg, tab, hz, bud)
+    case False{}:
+      gr.zero()
+
+def gr.pack(+ht: Ht, st: Sr, +hz: U32, +bud: U32) -> Gr:
   match st:
-    case Sr{_lo, _hi, +gg, +tab, bits, ok}:
-      gr.use(U32.is_eq(ok, 1), gg, tab, bits, q.all(spec, gain.of(gg)), hz)
+    case Sr{_lo, _hi, +gg, +tab, ix, ok}:
+      gr.ok(ok, ht, ix, gg, tab, hz, bud)
 
-def gr.of(+spec: List<&2, F32>, +hz: U32, +bud: U32) -> Gr:
-  gr.pack(dz.run(spec, hz, bud), spec, hz)
+def gr.tiny(zz: Bool, +pk: F32, +ht: Ht, +spec: List<&2, F32>, +hz: U32, +bud: U32) -> Gr:
+  match zz:
+    case True{}:
+      gr.zero()
+    case False{}:
+      gr.pack(ht, dz.go(dz.thrs(), spec, pk, hz, bud, ht, Sr{0, 255, 0, 0, [], False{}}), hz, bud)
+
+def gr.pk(+pk: F32, +ht: Ht, +spec: List<&2, F32>, +hz: U32, +bud: U32) -> Gr:
+  gr.tiny(F32.is_lt(pk, f32.bits(730643660)), pk, ht, spec, hz, bud)
+
+# one granule of 576 MDCT lines at most bud bits
+def gr.of(+ht: Ht, +spec: List<&2, F32>, +hz: U32, +bud: U32) -> Gr:
+  gr.pk(pk.go(spec, 0.0), ht, spec, hz, bud)
 
 # a matrix coefficient handed back beside the Array.get just read
 type Bf is Type:
@@ -1137,8 +1386,12 @@ def flip.all(xs: List<&2, List<&2, F32>>, +ii: U32, acc: List<&2, List<&2, F32>>
     case +hd <> tl:
       flip.all(tl, (ii + 1 : U32), flip.one(hd, U32.is_ne((ii .&. 1 : U32), 0)) <> acc)
 
+# ISO/IEC 11172-3 Annex C: the first granule's MDCT window starts on a granule of zeros
+def ch.prime() -> List<&2, List<&2, F32>>:
+  List.replicate(List<&2, F32>, 18n, List.replicate(F32, 32n, 0.0))
+
 def ch.specs(xs: List<&2, F32>) -> List<&2, List<&2, F32>>:
-  gran.all(flip.all(an.run(xs), 0, []))
+  gran.all(List.append(&2, List<&2, F32>, ch.prime(), flip.all(an.run(xs), 0, [])))
 
 # bit packer. completed bytes are newest-first until bw.bytes reverses them.
 type Bw is Data:
@@ -1178,77 +1431,6 @@ def bw.bytes(st: Bw) -> List<&2, U32>:
     case Bw{+acc, +n, out}:
       bw.tail(U32.is_eq(n, 0), acc, n, out)
 
-def pk.sr(+hz: U32) -> U32:
-  match hz:
-    case 48000:
-      4
-    case 32000:
-      8
-    case _:
-      0
-
-def pk.mode(+ch: U32) -> U32:
-  match ch:
-    case 1:
-      196
-    case _:
-      4
-
-def pk.hdr(+hz: U32, +ch: U32) -> List<&2, U32>:
-  [255, 251, (224 .|. pk.sr(hz) : U32), pk.mode(ch)]
-
-def pk.fsz(+hz: U32) -> U32:
-  U32.div(((1152 * 320 : U32) * 125 : U32), hz)
-
-def pk.sidebits(+ch: U32) -> U32:
-  match ch:
-    case 1:
-      136
-    case _:
-      256
-
-def pk.bud(+hz: U32, +ch: U32) -> U32:
-  (U32.div((((pk.fsz(hz) * 8 : U32) - 32 : U32) - pk.sidebits(ch) : U32), (ch * 2 : U32)) - 8 : U32)
-
-def blk.up(+n: U32) -> U32:
-  U32.div((n + 31 : U32), 32)
-
-def blk.q(+b: U32) -> U32:
-  U32.div((b + 17 : U32), 18)
-
-def blk.fix(even: Bool, +q: U32) -> U32:
-  match even:
-    case True{}:
-      ((q + 1 : U32) * 18 : U32)
-    case False{}:
-      (q * 18 : U32)
-
-def blk.odd(+q: U32) -> U32:
-  blk.fix(U32.is_eq((q .&. 1 : U32), 0), q)
-
-def blk.at(small: Bool, +b: U32) -> U32:
-  match small:
-    case True{}:
-      54
-    case False{}:
-      blk.odd(blk.q(b))
-
-def blk.n(+n: U32) -> U32:
-  blk.at(U32.is_lt(blk.up(n), 54), blk.up(n))
-
-def enc.need(+n: U32) -> U32:
-  (blk.n(n) * 32 : U32)
-
-def enc.zero(short: Bool, +have: U32, +need: U32) -> U32:
-  match short:
-    case True{}:
-      (need - have : U32)
-    case False{}:
-      0
-
-def enc.extra(+have: U32, +need: U32) -> U32:
-  enc.zero(U32.is_le(have, need), have, need)
-
 def side.priv(+ch: U32) -> U32:
   match ch:
     case 1:
@@ -1262,16 +1444,21 @@ def side.head(st: Bw, +ch: U32) -> Bw:
 def side.mid(st: Bw, +part: U32, +big: U32, +gain: U32) -> Bw:
   bw.field(1n, bw.field(4n, bw.field(8n, bw.field(9n, bw.field(12n, st, part), big), gain), 0), 0)
 
-def side.tabs(st: Bw, +tab: U32) -> Bw:
-  bw.field(3n, bw.field(4n, bw.field(5n, bw.field(5n, bw.field(5n, st, tab), tab), tab), 15), 5)
+# three table_select fields, region0_count 15 and region1_count 5; all zero without big_values
+def side.tabs(none: Bool, st: Bw, +tab: U32) -> Bw:
+  match none:
+    case True{}:
+      bw.field(22n, st, 0)
+    case False{}:
+      bw.field(3n, bw.field(4n, bw.field(5n, bw.field(5n, bw.field(5n, st, tab), tab), tab), 15), 5)
 
 def side.end(st: Bw) -> Bw:
   bw.field(1n, bw.field(1n, bw.field(1n, st, 0), 0), 0)
 
 def side.gr(st: Bw, g: Gr) -> Bw:
   match g:
-    case Gr{+part, +big, +gain, +tab, _bits}:
-      side.end(side.tabs(side.mid(st, part, big, gain), tab))
+    case Gr{+part, +big, +gain, +tab, _ix, _bits}:
+      side.end(side.tabs(U32.is_eq(big, 0), side.mid(st, part, big, gain), tab))
 
 def side.grs(gs: List<&2, Gr>, st: Bw) -> Bw:
   match gs:
@@ -1292,7 +1479,7 @@ def body.bits(xs: List<&2, U32>, st: Bw) -> Bw:
 
 def body.one(g: Gr, st: Bw) -> Bw:
   match g:
-    case Gr{_part, _big, _gain, _tab, bits}:
+    case Gr{_part, _big, _gain, _tab, _ix, bits}:
       body.bits(bits, st)
 
 def body.grs(gs: List<&2, Gr>, st: Bw) -> Bw:
@@ -1302,60 +1489,40 @@ def body.grs(gs: List<&2, Gr>, st: Bw) -> Bw:
     case +hd <> tl:
       body.grs(tl, body.one(hd, st))
 
-def pk.pad(+xs: List<&2, U32>, +fsz: U32) -> List<&2, U32>:
-  List.append(&2, U32, xs, List.replicate(U32,
-    U32.to_nat(enc.extra(U32.from_nat(List.length(&2, U32, xs)), fsz)), 0))
+def gr.take(hop: Nat, gs: List<&2, Gr>, acc: List<&2, Gr>) -> List<&2, Gr>:
+  match hop gs:
+    case 0n _:
+      List.reverse(&2, Gr, acc)
+    case _ Nil{}:
+      List.reverse(&2, Gr, acc)
+    case 1n+p +hd <> tl:
+      gr.take(p, tl, hd <> acc)
 
-def pk.fit(head: List<&2, U32>, body: List<&2, U32>, +fsz: U32) -> List<&2, U32>:
-  pk.pad(List.append(&2, U32, head, body), fsz)
+def gr.drop(hop: Nat, gs: List<&2, Gr>) -> List<&2, Gr>:
+  match hop gs:
+    case 0n ys:
+      ys
+    case _ Nil{}:
+      []
+    case 1n+p _hd <> tl:
+      gr.drop(p, tl)
 
-def pk.one(+gs: List<&2, Gr>, +hz: U32, +ch: U32) -> List<&2, U32>:
-  pk.fit(List.append(&2, U32, pk.hdr(hz, ch), side.bytes(gs, ch)), bw.bytes(body.grs(gs, bw.empty())),
-    pk.fsz(hz))
+# one frame after its header: side information, then the granules' main data
+def fr.data(+gs: List<&2, Gr>, +ch: U32) -> List<&2, U32>:
+  List.append(&2, U32, side.bytes(gs, ch), bw.bytes(body.grs(gs, bw.empty())))
 
 def pk.chan(
-  specs: List<&2, List<&2, F32>>, +hz: U32, +bud: U32, acc: List<&2, Gr>
+  specs: List<&2, List<&2, F32>>,
+  +hz: U32,
+  +bud: U32,
+  +ht: Ht,
+  acc: List<&2, Gr>
 ) -> List<&2, Gr>:
   match specs:
     case Nil{}:
       List.reverse(&2, Gr, acc)
     case +hd <> tl:
-      pk.chan(tl, hz, bud, gr.of(hd, hz, bud) <> acc)
-
-def pk.buf(done: Bool, buf: List<&2, Gr>, +g: Gr) -> List<&2, Gr>:
-  match done:
-    case True{}:
-      []
-    case False{}:
-      g <> buf
-
-def pk.have(done: Bool, +have: U32) -> U32:
-  match done:
-    case True{}:
-      0
-    case False{}:
-      (have + 1 : U32)
-
-def pk.acc(
-  done: Bool, buf: List<&2, Gr>, +g: Gr, +hz: U32, +ch: U32, acc: List<&2, List<&2, U32>>
-) -> List<&2, List<&2, U32>>:
-  match done:
-    case True{}:
-      pk.one(List.reverse(&2, Gr, g <> buf), hz, ch) <> acc
-    case False{}:
-      acc
-
-def pk.step(
-  gs: List<&2, Gr>, +buf: List<&2, Gr>, +have: U32, +per: U32, +hz: U32, +ch: U32,
-  acc: List<&2, List<&2, U32>>
-) -> List<&2, List<&2, U32>>:
-  match gs:
-    case Nil{}:
-      List.reverse(&2, List<&2, U32>, acc)
-    case +hd <> tl:
-      pk.step(tl, pk.buf(U32.is_eq((have + 1 : U32), per), buf, hd),
-        pk.have(U32.is_eq((have + 1 : U32), per), have), per, hz, ch,
-        pk.acc(U32.is_eq((have + 1 : U32), per), buf, hd, hz, ch, acc))
+      pk.chan(tl, hz, bud, ht, gr.of(ht, hd, hz, bud) <> acc)
 
 def pk.zip(ls: List<&2, Gr>, rs: List<&2, Gr>, acc: List<&2, Gr>) -> List<&2, Gr>:
   match ls rs:
@@ -1364,26 +1531,83 @@ def pk.zip(ls: List<&2, Gr>, rs: List<&2, Gr>, acc: List<&2, Gr>) -> List<&2, Gr
     case _ _:
       List.reverse(&2, Gr, acc)
 
-def enc.grow(+xs: List<&2, F32>) -> List<&2, F32>:
-  List.append(&2, F32, xs, List.replicate(F32, U32.to_nat(enc.extra(
-    U32.from_nat(List.length(&2, F32, xs)), enc.need(U32.from_nat(List.length(&2, F32, xs))))), 0.0))
+# exactly hop samples: the list, then zeros
+def f.fix(hop: Nat, xs: List<&2, F32>) -> List<&2, F32>:
+  match hop:
+    case 0n:
+      []
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          0.0 <> f.fix(p, [])
+        case +hd <> tl:
+          hd <> f.fix(p, tl)
 
-def enc.chgr(xs: List<&2, F32>, +hz: U32, +bud: U32) -> List<&2, Gr>:
-  pk.chan(ch.specs(enc.grow(xs)), hz, bud, [])
+# a channel of nf frames: nf * 1152 samples, zero-padded, two granules a frame
+def enc.chgr(xs: List<&2, F32>, +hz: U32, +nf: U32, +bud: U32, +ht: Ht) -> List<&2, Gr>:
+  pk.chan(ch.specs(f.fix(U32.to_nat((nf * 1152 : U32)), xs)), hz, bud, ht, [])
 
-def s16.f(neg: Bool, +w: U32) -> F32:
+def s16.f(neg: Bool, +ww: U32) -> F32:
   match neg:
     case False{}:
-      (U32.to_f32((w .&. 65535 : U32)) / 32768.0 : F32)
+      (U32.to_f32((ww .&. 65535 : U32)) / 32768.0 : F32)
     case True{}:
-      F32.neg((U32.to_f32((65536 - (w .&. 65535 : U32) : U32)) / 32768.0 : F32))
+      F32.neg((U32.to_f32((65536 - (ww .&. 65535 : U32) : U32)) / 32768.0 : F32))
 
-def samp.of(+kind: U32, +w: U32) -> F32:
+def samp.sign(neg: Bool) -> U32:
+  match neg:
+    case True{}:
+      3212836864
+    case False{}:
+      1065353216
+
+# NaN is 0; infinities and magnitudes past 1 are -1 or 1
+def samp.big(nan: Bool, neg: Bool) -> U32:
+  match nan:
+    case True{}:
+      0
+    case False{}:
+      samp.sign(neg)
+
+def samp.pick(ok: Bool, +ww: U32) -> U32:
+  match ok:
+    case True{}:
+      ww
+    case False{}:
+      samp.big(U32.is_lt(2139095040, (ww .&. 2147483647 : U32)), U32.is_ne((ww .&. 2147483648 : U32), 0))
+
+# a binary32 word kept when finite with magnitude at most 1, its magnitude bits at most 1.0's
+def samp.sat(+ww: U32) -> U32:
+  samp.pick(U32.is_le((ww .&. 2147483647 : U32), 1065353216), ww)
+
+def samp.of(+kind: U32, +ww: U32) -> F32:
   match kind:
     case 1:
-      s16.f(U32.is_ne((w .&. 32768 : U32), 0), w)
+      s16.f(U32.is_ne((ww .&. 32768 : U32), 0), ww)
     case _:
-      f32.bits(w)
+      f32.bits(samp.sat(ww))
+
+# a zero sample: s16 0, or a binary32 word whose sanitized magnitude is 0
+def samp.zero(+kind: U32, +ww: U32) -> Bool:
+  match kind:
+    case 1:
+      U32.is_eq((ww .&. 65535 : U32), 0)
+    case _:
+      U32.is_eq((samp.sat(ww) .&. 2147483647 : U32), 0)
+
+def q.both(aa: Bool, bb: Bool) -> Bool:
+  match aa:
+    case False{}:
+      False{}
+    case True{}:
+      bb
+
+def pcm.quiet(xs: List<&2, U32>, +kind: U32, acc: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      acc
+    case +hd <> tl:
+      pcm.quiet(tl, kind, q.both(acc, samp.zero(kind, hd)))
 
 def pcm.go(+kind: U32, xs: List<&2, U32>, acc: List<&2, F32>) -> List<&2, F32>:
   match xs:
@@ -1437,69 +1661,59 @@ def split.go(xs: List<&2, F32>, +ch: U32, c: Chs, +phase: U32) -> Chs:
     case +hd <> tl:
       split.go(tl, ch, split.put(c, hd, phase), split.next(ch, phase))
 
-def enc.flat(xs: List<&2, List<&2, U32>>) -> List<&2, U32>:
-  match xs:
-    case Nil{}:
-      []
-    case +hd <> tl:
-      List.append(&2, U32, hd, enc.flat(tl))
-
-def enc.mono(+hz: U32, left: List<&2, F32>) -> List<&2, List<&2, U32>>:
-  pk.step(enc.chgr(left, hz, pk.bud(hz, 1)), [], 0, 2, hz, 1, [])
-
-def enc.stereo(+hz: U32, left: List<&2, F32>, right: List<&2, F32>) -> List<&2, List<&2, U32>>:
-  pk.step(pk.zip(enc.chgr(left, hz, pk.bud(hz, 2)), enc.chgr(right, hz, pk.bud(hz, 2)), []), [], 0,
-    4, hz, 2, [])
-
 def enc.chs(
-  mono: Bool, +hz: U32, left: List<&2, F32>, right: List<&2, F32>
-) -> List<&2, List<&2, U32>>:
+  mono: Bool,
+  +hz: U32,
+  left: List<&2, F32>,
+  right: List<&2, F32>,
+  +nf: U32,
+  +bud: U32,
+  +ht: Ht
+) -> List<&2, Gr>:
   match mono:
     case True{}:
-      enc.mono(hz, left)
+      enc.chgr(left, hz, nf, bud, ht)
     case False{}:
-      enc.stereo(hz, left, right)
+      pk.zip(enc.chgr(left, hz, nf, bud, ht), enc.chgr(right, hz, nf, bud, ht), [])
 
-def enc.some(empty: Bool, +xs: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
-  match empty:
-    case True{}:
-      None{}
-    case False{}:
-      Some{xs}
-
-def enc.packed(+xs: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
-  enc.some(U32.is_eq(U32.from_nat(List.length(&2, U32, xs)), 0), xs)
-
-def enc.out(mono: Bool, +hz: U32, l: List<&2, F32>, r: List<&2, F32>) -> Maybe<&2, List<&2, U32>>:
-  enc.packed(enc.flat(enc.chs(mono, hz, l, r)))
-
-def enc.from(c: Chs, +hz: U32, +ch: U32) -> Maybe<&2, List<&2, U32>>:
-  match c:
+def enc.from(cc: Chs, +hz: U32, +ch: U32, +nf: U32, +bud: U32) -> List<&2, Gr>:
+  match cc:
     case Chs{l, r}:
-      enc.out(U32.is_eq(ch, 1), hz, l, r)
+      enc.chs(U32.is_eq(ch, 1), hz, l, r, nf, bud, ht.of())
 
-def enc.kind(+k: U32) -> Bool:
-  match k:
-    case 1:
-      True{}
-    case 3:
-      True{}
-    case _:
-      False{}
+def enc.live(
+  +hz: U32,
+  +ch: U32,
+  +kind: U32,
+  frames: List<&2, U32>,
+  +nf: U32,
+  +bud: U32
+) -> List<&2, Gr>:
+  enc.from(split.go(pcm.go(kind, frames, []), ch, Chs{[], []}, 0), hz, ch, nf, bud)
 
-def enc.go(+hz: U32, +ch: U32, +kind: U32, frames: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
-  enc.from(split.go(pcm.go(kind, frames, []), ch, Chs{[], []}, 0), hz, ch)
-
-def enc.finish(
-  ok: Bool, +hz: U32, +ch: U32, +kind: U32, frames: List<&2, U32>
-) -> Maybe<&2, List<&2, U32>>:
-  match ok:
-    case False{}:
-      None{}
+# silence skips the filterbank: zero samples make zero lines, and zero lines a zero granule
+def enc.quiet(
+  quiet: Bool,
+  +hz: U32,
+  +ch: U32,
+  +kind: U32,
+  frames: List<&2, U32>,
+  +nf: U32,
+  +bud: U32
+) -> List<&2, Gr>:
+  match quiet:
     case True{}:
-      enc.go(hz, ch, kind, frames)
+      List.replicate(Gr, U32.to_nat(((nf * 2 : U32) * ch : U32)), gr.zero())
+    case False{}:
+      enc.live(hz, ch, kind, frames, nf, bud)
 
-def enc.run(
-  +hz: U32, +ch: U32, +kind: U32, frames: List<&2, U32>
-) -> Maybe<&2, List<&2, U32>>:
-  enc.finish(enc.kind(kind), hz, ch, kind, frames)
+# nf frames of granules in stream order: per frame granule 0 then 1, each channel 0 then 1
+def enc.grans(
+  +hz: U32,
+  +ch: U32,
+  +kind: U32,
+  +frames: List<&2, U32>,
+  +nf: U32,
+  +bud: U32
+) -> List<&2, Gr>:
+  enc.quiet(pcm.quiet(frames, kind, True{}), hz, ch, kind, frames, nf, bud)

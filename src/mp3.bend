@@ -240,10 +240,6 @@ def sr.row(+hz: U32) -> U32:
     case _:
       5
 
-# encoder header at 320 kbit/s, original bit set, no CRC, no pad
-def enc.b2(+hz: U32) -> U32:
-  (224 .|. (sr.row(hz) .&. 0 : U32) : U32)
-
 def enc.srbits(+hz: U32) -> U32:
   match hz:
     case 48000:
@@ -260,116 +256,141 @@ def enc.b3(+ch: U32) -> U32:
     case _:
       4
 
-def enc.hdr(+hz: U32, +ch: U32) -> List<&2, U32>:
-  [255, 251, (224 .|. enc.srbits(hz) : U32), enc.b3(ch)]
+# encoder header: MPEG-1 Layer III at 320 kbit/s, no CRC, original bit set, pad 0 or 1
+def enc.hdr(+hz: U32, +ch: U32, +pad: U32) -> List<&2, U32>:
+  [255, 251, ((224 .|. enc.srbits(hz) : U32) .|. (pad << 1n : U32) : U32), enc.b3(ch)]
 
+# the encoder's rates are 32000, 44100 and 48000
 def enc.rate(+hz: U32) -> Bool:
-  match hz:
-    case 44100:
-      True{}
-    case 48000:
-      True{}
-    case 32000:
-      True{}
-    case _:
-      False{}
+  Bool.or(U32.is_eq(hz, 32000), Bool.or(U32.is_eq(hz, 44100), U32.is_eq(hz, 48000)))
 
+# mono or stereo
 def enc.ch(+ch: U32) -> Bool:
-  match ch:
-    case 1:
-      True{}
-    case 2:
-      True{}
-    case _:
-      False{}
+  Bool.or(U32.is_eq(ch, 1), U32.is_eq(ch, 2))
 
-def kind.ok(+k: U32) -> Bool:
-  match k:
-    case 1:
-      True{}
-    case 3:
-      True{}
-    case _:
-      False{}
-
-def zeros.rest(xs: List<&2, U32>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case 0 <> t:
-      zeros.rest(t)
-    case _ <> _t:
-      False{}
-
-# an empty sample list is not silence. Silence is one or more zero samples.
-def frames.zero(xs: List<&2, U32>) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case 0 <> t:
-      zeros.rest(t)
-    case _ <> _t:
-      False{}
-
-def frames.empty(xs: List<&2, U32>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case _ <> _t:
-      False{}
+def enc.fit(+hz: U32, +ch: U32) -> Bool:
+  Bool.and(enc.rate(hz), enc.ch(ch))
 
 def ls.cat(xs: List<&2, U32>, ys: List<&2, U32>) -> List<&2, U32>:
   List.append(&2, U32, xs, ys)
 
-# one silent 320 kbit/s frame. big_values and part2_3_length are zero.
-def silence.of(+hz: U32, +ch: U32) -> List<&2, U32>:
-  ls.cat(enc.hdr(hz, ch), List.replicate(U32, U32.to_nat((frame.n(320, hz, 0) - 4 : U32)), 0))
+# exactly hop bytes: the list, then zeros
+def ls.fix(hop: Nat, xs: List<&2, U32>) -> List<&2, U32>:
+  match hop:
+    case 0n:
+      []
+    case 1n+p:
+      match xs:
+        case Nil{}:
+          0 <> ls.fix(p, [])
+        case +hd <> tl:
+          hd <> ls.fix(p, tl)
 
-def silence.ok(ok: Bool, +hz: U32, +ch: U32) -> Maybe<&2, List<&2, U32>>:
-  match ok:
+# a frame is 1152 * 320000 / 8 / hz bytes; this is the remainder of that division, times hz
+def enc.rem(+hz: U32) -> U32:
+  (46080000 - (U32.div(46080000, hz) * hz : U32) : U32)
+
+# a frame pads once the remainders since the last padded frame make a whole byte
+def enc.padb(+hz: U32, +slot: U32) -> Bool:
+  U32.is_le(hz, (slot + enc.rem(hz) : U32))
+
+def enc.next(pad: Bool, +hz: U32, +slot: U32) -> U32:
+  match pad:
+    case True{}:
+      ((slot + enc.rem(hz) : U32) - hz : U32)
     case False{}:
+      (slot + enc.rem(hz) : U32)
+
+# the pad bit of each of hop frames, starting from a slot remainder
+def enc.pads(hop: Nat, +hz: U32, +slot: U32) -> List<&2, Bool>:
+  match hop:
+    case 0n:
+      []
+    case 1n+p:
+      enc.padb(hz, slot) <> enc.pads(p, hz, enc.next(enc.padb(hz, slot), hz, slot))
+
+def enc.pad(pad: Bool) -> U32:
+  match pad:
+    case True{}:
+      1
+    case False{}:
+      0
+
+# a frame: the header, side information and main data, as many bytes as the header says
+def enc.frame(+hz: U32, +ch: U32, +pad: U32, gs: List<&2, Enc.Gr>) -> List<&2, U32>:
+  ls.fix(U32.to_nat(frame.n(320, hz, pad)), ls.cat(enc.hdr(hz, ch, pad), Enc.fr.data(gs, ch)))
+
+# one frame per pad bit, each taking two granules per channel
+def fr.go(pads: List<&2, Bool>, +gs: List<&2, Enc.Gr>, +hz: U32, +ch: U32) -> List<&2, U32>:
+  match pads:
+    case Nil{}:
+      []
+    case pd <> tl:
+      ls.cat(enc.frame(hz, ch, enc.pad(pd), Enc.gr.take(U32.to_nat((ch * 2 : U32)), gs, [])),
+        fr.go(tl, Enc.gr.drop(U32.to_nat((ch * 2 : U32)), gs), hz, ch))
+
+# frames for samples / channels per-channel samples: whole frames, a granule of MDCT delay
+# and the filterbank's, so 1152 * frames is at least samples + 1056
+def enc.nf(+ch: U32, +pcm: List<&2, U32>) -> U32:
+  (U32.div(U32.div(U32.from_nat(List.length(&2, U32, pcm)), ch), 1152) + 2 : U32)
+
+def side.bits(+ch: U32) -> U32:
+  match ch:
+    case 1:
+      136
+    case _:
+      256
+
+def bud.cap(fit: Bool, +nn: U32) -> U32:
+  match fit:
+    case True{}:
+      nn
+    case False{}:
+      4095
+
+def enc.room(+hz: U32, +ch: U32) -> U32:
+  (U32.div((((frame.n(320, hz, 0) * 8 : U32) - 32 : U32) - side.bits(ch) : U32), (ch * 2 : U32)) - 8 : U32)
+
+# bits per granule and channel: an unpadded frame less header and side information, shared
+# by the granules, less 8; at most 4095, the largest 12-bit part2_3_length
+def enc.bud(+hz: U32, +ch: U32) -> U32:
+  bud.cap(U32.is_le(enc.room(hz, ch), 4095), enc.room(hz, ch))
+
+def enc.out(+nf: U32, +hz: U32, +ch: U32, +kind: U32, +pcm: List<&2, U32>) -> List<&2, U32>:
+  fr.go(enc.pads(U32.to_nat(nf), hz, 0), Enc.enc.grans(hz, ch, kind, pcm, nf, enc.bud(hz, ch)), hz, ch)
+
+# every input sample is in a frame: nf frames, the first padded from slot 0
+def enc.bytes(+hz: U32, +ch: U32, +kind: U32, +pcm: List<&2, U32>) -> List<&2, U32>:
+  enc.out(enc.nf(ch, pcm), hz, ch, kind, pcm)
+
+def mp3.body(+hz: U32, +ch: U32, +kind: U32, pcm: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
+  match pcm:
+    case Nil{}:
       None{}
-    case True{}:
-      Some{silence.of(hz, ch)}
-
-# non-zero PCM goes through the analysis filterbank, MDCT, and Huffman encoder.
-def mp3.live(
-  +hz: U32, +ch: U32, +kind: U32, frames: List<&2, U32>
-) -> Maybe<&2, List<&2, U32>>:
-  Enc.enc.run(hz, ch, kind, frames)
-
-def mp3.nz(
-  z: Bool, +hz: U32, +ch: U32, +kind: U32, +frames: List<&2, U32>
-) -> Maybe<&2, List<&2, U32>>:
-  match z:
-    case True{}:
-      silence.ok(True{}, hz, ch)
-    case False{}:
-      mp3.live(hz, ch, kind, frames)
-
-def mp3.body(
-  empty: Bool, +hz: U32, +ch: U32, +kind: U32, +frames: List<&2, U32>
-) -> Maybe<&2, List<&2, U32>>:
-  match empty:
-    case True{}:
-      None{}
-    case False{}:
-      mp3.nz(frames.zero(frames), hz, ch, kind, frames)
+    case +hd <> tl:
+      Some{enc.bytes(hz, ch, kind, hd <> tl)}
 
 def mp3.pick(
-  ok: Bool, +hz: U32, +ch: U32, +kind: U32, +frames: List<&2, U32>
+  ok: Bool,
+  +hz: U32,
+  +ch: U32,
+  +kind: U32,
+  pcm: List<&2, U32>
 ) -> Maybe<&2, List<&2, U32>>:
   match ok:
     case False{}:
       None{}
     case True{}:
-      mp3.body(frames.empty(frames), hz, ch, kind, frames)
+      mp3.body(hz, ch, kind, pcm)
 
-# samples are interleaved U32 bits. kind 1 is s16, kind 3 is binary32.
+# samples are interleaved U32 bits. kind 1 is s16, any other binary32.
 def mp3.encode(
-  +hz: U32, +ch: U32, +kind: U32, frames: List<&2, U32>
+  +hz: U32,
+  +ch: U32,
+  +kind: U32,
+  pcm: List<&2, U32>
 ) -> Maybe<&2, List<&2, U32>>:
-  mp3.pick(enc.rate(hz) && enc.ch(ch) && kind.ok(kind), hz, ch, kind, frames)
+  mp3.pick(enc.fit(hz, ch), hz, ch, kind, pcm)
 
 # a decoded frame: hertz, channels, interleaved binary32 words
 type Pcm is Data:
