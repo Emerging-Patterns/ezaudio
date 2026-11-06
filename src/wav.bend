@@ -1,20 +1,20 @@
 # RIFF WAVE. PCM is little-endian signed 16-bit. Float is IEEE binary32.
+#
+# The reader walks the chunks in order: `fmt ` first, then any chunks it does
+# not know, then `data`, whose samples it reads straight from the input. It
+# stops there, as libsndfile, dr_wav and Python's wave do, so what follows the
+# data chunk (a LIST chunk, an ID3 tag, junk) is not read. A data chunk larger
+# than what is left (a truncated file, or 0xFFFFFFFF from a streamed writer)
+# is clamped to the bytes present, and the samples to whole frames.
 import Base
 
 # a parsed wave. kind 1 is signed 16-bit, kind 3 is binary32. frames are interleaved.
 type Wav is Data:
   Wav{rate: U32, channels: U32, kind: U32, frames: List<&2, U32>}
 
-# fmt fields that passed the PCM checks
+# fmt fields that passed the checks
 type Fm is Data:
   Fm{kind: U32, ch: U32, rate: U32}
-
-# the chunk walker: phase 0 tag, 1 size, 2 payload, 3 pad byte
-type St is Data:
-  St{
-    phase: U32, left: U32, tag: U32, sz: U32, seen: U32, kind: U32, ch: U32,
-    rate: U32, acc: List<&2, U32>, frames: List<&2, U32>
-  }
 
 # 'RIFF'
 def tag.riff() -> U32:
@@ -31,6 +31,10 @@ def tag.fmt() -> U32:
 # 'data'
 def tag.data() -> U32:
   1684108385
+
+# 'fact'
+def tag.fact() -> U32:
+  1717658484
 
 def be.u32(+aa: U32, +bb: U32, +cc: U32, +dd: U32) -> U32:
   ((((aa << 24n : U32) .|. (bb << 16n : U32) : U32) .|. (cc << 8n : U32) : U32) .|. dd : U32)
@@ -63,28 +67,21 @@ def put.b2(+vv: U32) -> U32:
 def put.b3(+vv: U32) -> U32:
   ((vv >> 24n : U32) .&. 255 : U32)
 
-def word4.pick(big: Bool, +aa: U32, +bb: U32, +cc: U32, +dd: U32) -> U32:
-  match big:
-    case True{}:
-      be.u32(aa, bb, cc, dd)
-    case False{}:
-      le.u32(aa, bb, cc, dd)
+# the list after its first hop elements, or [] when it is shorter
+def ls.skip(hop: Nat, xs: List<&2, U32>) -> List<&2, U32>:
+  match hop:
+    case 0n:
+      xs
+    case 1n+pp:
+      match xs:
+        case Nil{}:
+          []
+        case _hd <> tl:
+          ls.skip(pp, tl)
 
-def word.of(xs: List<&2, U32>, +big: U32) -> U32:
-  match xs:
-    case +dd <> +cc <> +bb <> +aa <> _tl:
-      word4.pick(U32.is_eq(big, 1), aa, bb, cc, dd)
-    case _:
-      0
-
-def st.empty() -> St:
-  St{0, 4, 0, 0, 0, 0, 0, 0, [], []}
-
-def st.set(
-  +phase: U32, +left: U32, +tag: U32, +sz: U32, +seen: U32, +kind: U32, +ch: U32,
-  +rate: U32, acc: List<&2, U32>, frames: List<&2, U32>
-) -> St:
-  St{phase, left, tag, sz, seen, kind, ch, rate, acc, frames}
+# a chunk's payload and its pad byte: an odd size carries one
+def chunk.span(+sz: U32) -> Nat:
+  Nat.add(U32.to_nat(sz), U32.to_nat((sz .&. 1 : U32)))
 
 def fmt.rate(ok: Bool, +kind: U32, +ch: U32, +rate: U32) -> Maybe<&2, Fm>:
   match ok:
@@ -93,288 +90,224 @@ def fmt.rate(ok: Bool, +kind: U32, +ch: U32, +rate: U32) -> Maybe<&2, Fm>:
     case False{}:
       None{}
 
-def fmt.ok(+kind: U32, +ch: U32, +rate: U32, +br: U32, +al: U32, +bits: U32) -> Maybe<&2, Fm>:
+# mono or stereo 16-bit PCM or 32-bit float at a non-zero rate. The block
+# align and byte rate are not checked: they follow from the channels and the
+# bits, and readers such as Python's wave and dr_wav derive them the same way.
+def fmt.ok(+kind: U32, +ch: U32, +rate: U32, +bits: U32) -> Maybe<&2, Fm>:
   match kind ch bits:
     case 1 1 16:
-      fmt.rate(U32.is_eq(al, 2) && U32.is_eq(br, (rate * 2 : U32)) && U32.is_ne(rate, 0), kind, ch, rate)
+      fmt.rate(U32.is_ne(rate, 0), kind, ch, rate)
     case 1 2 16:
-      fmt.rate(U32.is_eq(al, 4) && U32.is_eq(br, (rate * 4 : U32)) && U32.is_ne(rate, 0), kind, ch, rate)
+      fmt.rate(U32.is_ne(rate, 0), kind, ch, rate)
     case 3 1 32:
-      fmt.rate(U32.is_eq(al, 4) && U32.is_eq(br, (rate * 4 : U32)) && U32.is_ne(rate, 0), kind, ch, rate)
+      fmt.rate(U32.is_ne(rate, 0), kind, ch, rate)
     case 3 2 32:
-      fmt.rate(U32.is_eq(al, 8) && U32.is_eq(br, (rate * 8 : U32)) && U32.is_ne(rate, 0), kind, ch, rate)
+      fmt.rate(U32.is_ne(rate, 0), kind, ch, rate)
     case _ _ _:
       None{}
 
+# the tail of KSDATAFORMAT_SUBTYPE_PCM and _IEEE_FLOAT after their first word
+def guid.tail() -> List<&2, U32>:
+  [0, 0, 0, 0, 16, 0, 128, 0, 0, 170, 0, 56, 155, 113]
+
+# do the bytes of xs begin ys: ok carries the match so far and stops the walk
+def guid.is(xs: List<&2, U32>, ys: List<&2, U32>, ok: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      ok
+    case +hx <> tx:
+      match ys:
+        case Nil{}:
+          False{}
+        case +hy <> ty:
+          match ok:
+            case False{}:
+              False{}
+            case True{}:
+              guid.is(tx, ty, U32.is_eq(hx, hy))
+
+def guid.kind(ok: Bool, +kind: U32) -> U32:
+  match ok:
+    case True{}:
+      kind
+    case False{}:
+      0
+
+# WAVE_FORMAT_EXTENSIBLE: after cbSize, the valid bits and the channel mask,
+# the first word of the sub-format GUID is the format tag
+def fmt.sub(rest: List<&2, U32>) -> U32:
+  match rest:
+    case _c0 <> _c1 <> _v0 <> _v1 <> _m0 <> _m1 <> _m2 <> _m3 <> +g0 <> +g1 <> tl:
+      guid.kind(guid.is(guid.tail(), tl, True{}), le.u16(g0, g1))
+    case _:
+      0
+
+# the format tag: 1 and 3 as they are, 0xFFFE through its sub-format when the
+# chunk holds it (40 bytes or more), and 0 for anything else
+def fmt.tag.at(ext: Bool, +sz: U32, +tag: U32, rest: List<&2, U32>) -> U32:
+  match ext:
+    case False{}:
+      tag
+    case True{}:
+      guid.kind(U32.is_le(40, sz), fmt.sub(rest))
+
 def fmt.pack(
-  +k0: U32, +k1: U32, +c0: U32, +c1: U32, +r0: U32, +r1: U32, +r2: U32, +r3: U32,
-  +b0: U32, +b1: U32, +b2: U32, +b3: U32, +a0: U32, +a1: U32, +t0: U32, +t1: U32
+  +sz: U32,
+  +kind: U32,
+  +ch: U32,
+  +rate: U32,
+  +bits: U32,
+  rest: List<&2, U32>
 ) -> Maybe<&2, Fm>:
-  fmt.ok(
-    le.u16(k0, k1), le.u16(c0, c1), le.u32(r0, r1, r2, r3), le.u32(b0, b1, b2, b3),
-    le.u16(a0, a1), le.u16(t0, t1))
+  fmt.ok(fmt.tag.at(U32.is_eq(kind, 65534), sz, kind, rest), ch, rate, bits)
 
-def fmt.fields(ys: List<&2, U32>) -> Maybe<&2, Fm>:
+def fmt.read(+sz: U32, ys: List<&2, U32>) -> Maybe<&2, Fm>:
   match ys:
-    case +k0 <> +k1 <> +c0 <> +c1 <> +r0 <> +r1 <> +r2 <> +r3 <> +b0 <> +b1 <> +b2 <> +b3
-      <> +a0 <> +a1 <> +t0 <> +t1 <> _rest:
-      fmt.pack(k0, k1, c0, c1, r0, r1, r2, r3, b0, b1, b2, b3, a0, a1, t0, t1)
+    case +k0 <> +k1 <> +c0 <> +c1 <> +r0 <> +r1 <> +r2 <> +r3 <> _b0 <> _b1 <> _b2 <> _b3
+      <> _a0 <> _a1 <> +t0 <> +t1 <> rest:
+      fmt.pack(sz, le.u16(k0, k1), le.u16(c0, c1), le.u32(r0, r1, r2, r3), le.u16(t0, t1), rest)
     case _:
       None{}
 
-def pcm.cons(got: Maybe<&2, List<&2, U32>>, +vv: U32) -> Maybe<&2, List<&2, U32>>:
-  match got:
-    case None{}:
+def fmt.long(ok: Bool, +sz: U32, ys: List<&2, U32>) -> Maybe<&2, Fm>:
+  match ok:
+    case False{}:
       None{}
-    case Some{rest}:
-      Some{vv <> rest}
+    case True{}:
+      fmt.read(sz, ys)
 
-def pcm.s16(xs: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
-  match xs:
-    case Nil{}:
-      Some{[]}
-    case +lo <> +hi <> tl:
-      pcm.cons(pcm.s16(tl), le.u16(lo, hi))
-    case _:
-      None{}
+# the fmt chunk's fields. A chunk under 16 bytes is none.
+def fmt.fields(+sz: U32, ys: List<&2, U32>) -> Maybe<&2, Fm>:
+  fmt.long(U32.is_le(16, sz), sz, ys)
 
-def pcm.f32(xs: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
-  match xs:
-    case Nil{}:
-      Some{[]}
-    case +a0 <> +a1 <> +a2 <> +a3 <> tl:
-      pcm.cons(pcm.f32(tl), le.u32(a0, a1, a2, a3))
-    case _:
-      None{}
+def pcm.s16(nn: Nat, xs: List<&2, U32>) -> List<&2, U32>:
+  match nn:
+    case 0n:
+      []
+    case 1n+pp:
+      match xs:
+        case +lo <> +hi <> tl:
+          le.u16(lo, hi) <> pcm.s16(pp, tl)
+        case _:
+          []
 
-def pcm.of(+kind: U32, ys: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
+def pcm.f32(nn: Nat, xs: List<&2, U32>) -> List<&2, U32>:
+  match nn:
+    case 0n:
+      []
+    case 1n+pp:
+      match xs:
+        case +a0 <> +a1 <> +a2 <> +a3 <> tl:
+          le.u32(a0, a1, a2, a3) <> pcm.f32(pp, tl)
+        case _:
+          []
+
+def pcm.of(+kind: U32, nn: Nat, ys: List<&2, U32>) -> List<&2, U32>:
   match kind:
     case 1:
-      pcm.s16(ys)
+      pcm.s16(nn, ys)
     case _:
-      pcm.f32(ys)
+      pcm.f32(nn, ys)
 
-def done.ok(ok: Bool, +rt: U32, +ch: U32, +kd: U32, fr: List<&2, U32>) -> Maybe<&2, Wav>:
-  match ok:
-    case True{}:
-      Some{Wav{rt, ch, kd, fr}}
-    case False{}:
-      None{}
+# bytes per sample
+def width.nat(+kind: U32) -> Nat:
+  match kind:
+    case 1:
+      2n
+    case _:
+      4n
 
-def st.done(st: St) -> Maybe<&2, Wav>:
-  match st:
-    case St{ph, lf, _tg, _sz, sn, kd, ch, rt, _ac, fr}:
-      done.ok(U32.is_eq(ph, 0) && U32.is_eq(lf, 4) && U32.is_eq(sn, 2), rt, ch, kd, fr)
+# the samples in the whole frames of have bytes
+def data.count(+kind: U32, +ch: U32, +have: Nat) -> Nat:
+  Nat.mul(Nat.div(have, Nat.mul(width.nat(kind), U32.to_nat(ch))), U32.to_nat(ch))
 
-def step.next.pad(
-  odd: Bool, +sz: U32, +tag: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32,
-  frames: List<&2, U32>
-) -> St:
-  match odd:
-    case True{}:
-      st.set(3, 1, tag, sz, seen, kind, ch, rate, [], frames)
-    case False{}:
-      st.set(0, 4, tag, sz, seen, kind, ch, rate, [], frames)
+# the data chunk: its size clamped to the bytes left, its samples to whole frames
+def data.read(fm: Fm, +sz: U32, +rest: List<&2, U32>) -> Maybe<&2, Wav>:
+  match fm:
+    case Fm{+kind, +ch, +rate}:
+      Some{Wav{rate, ch, kind,
+        pcm.of(kind, data.count(kind, ch, Nat.min(U32.to_nat(sz), List.length(&2, U32, rest))), rest)}}
 
-def step.next(
-  +sz: U32, +tag: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32, frames: List<&2, U32>
-) -> St:
-  step.next.pad(U32.is_eq((sz .&. 1 : U32), 1), sz, tag, seen, kind, ch, rate, frames)
+# one step of the chunk walk: done, or the chunks left and the fmt seen so far
+type Step is Data:
+  Fin{got: Maybe<&2, Wav>}
+  Go{fm: Maybe<&2, Fm>, xs: List<&2, U32>}
 
-def step.fmt.got(got: Maybe<&2, Fm>, +sz: U32, frames: List<&2, U32>) -> St:
+def step.fmt(got: Maybe<&2, Fm>, rest: List<&2, U32>) -> Step:
   match got:
     case None{}:
-      step.next(sz, tag.fmt(), 3, 0, 0, 0, frames)
-    case Some{Fm{kd, cc, rt}}:
-      step.next(sz, tag.fmt(), 1, kd, cc, rt, frames)
+      Fin{None{}}
+    case Some{fm}:
+      Go{Some{fm}, rest}
 
-def step.fmt(
-  +sz: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32, ys: List<&2, U32>,
-  frames: List<&2, U32>
-) -> St:
-  match seen:
-    case 0:
-      step.fmt.got(fmt.fields(ys), sz, frames)
-    case _:
-      step.next(sz, tag.fmt(), seen, kind, ch, rate, frames)
-
-def step.pcm.got(
-  got: Maybe<&2, List<&2, U32>>, +sz: U32, +kind: U32, +ch: U32, +rate: U32
-) -> St:
-  match got:
-    case None{}:
-      step.next(sz, tag.data(), 3, kind, ch, rate, [])
-    case Some{fr}:
-      step.next(sz, tag.data(), 2, kind, ch, rate, fr)
-
-def step.pcm(
-  ready: Bool, +sz: U32, +kind: U32, +ch: U32, +rate: U32, ys: List<&2, U32>,
-  frames: List<&2, U32>
-) -> St:
-  match ready:
-    case False{}:
-      step.next(sz, tag.data(), 3, kind, ch, rate, frames)
-    case True{}:
-      step.pcm.got(pcm.of(kind, ys), sz, kind, ch, rate)
-
-def step.dat(
-  isd: Bool, +tag: U32, +sz: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32,
-  ys: List<&2, U32>, frames: List<&2, U32>
-) -> St:
+# a chunk before fmt: fmt is read, data is none, anything else is skipped
+def step.pre.data(isd: Bool, +sz: U32, rest: List<&2, U32>) -> Step:
   match isd:
-    case False{}:
-      step.next(sz, tag, seen, kind, ch, rate, frames)
     case True{}:
-      step.pcm(U32.is_eq(seen, 1), sz, kind, ch, rate, ys, frames)
+      Fin{None{}}
+    case False{}:
+      Go{None{}, ls.skip(chunk.span(sz), rest)}
 
-def step.chunk.on(
-  isf: Bool, +tag: U32, +sz: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32,
-  ys: List<&2, U32>, frames: List<&2, U32>
-) -> St:
+def step.pre(isf: Bool, +tag: U32, +sz: U32, +rest: List<&2, U32>) -> Step:
   match isf:
     case True{}:
-      step.fmt(sz, seen, kind, ch, rate, ys, frames)
+      step.fmt(fmt.fields(sz, rest), ls.skip(chunk.span(sz), rest))
     case False{}:
-      step.dat(U32.is_eq(tag, tag.data()), tag, sz, seen, kind, ch, rate, ys, frames)
+      step.pre.data(U32.is_eq(tag, tag.data()), sz, rest)
 
-def step.chunk(
-  +tag: U32, +sz: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32,
-  ys: List<&2, U32>, frames: List<&2, U32>
-) -> St:
-  step.chunk.on(U32.is_eq(tag, tag.fmt()), tag, sz, seen, kind, ch, rate, ys, frames)
-
-def step.tag.at(
-  last: Bool, +left: U32, +sz: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32,
-  acc: List<&2, U32>, frames: List<&2, U32>
-) -> St:
-  match last:
-    case False{}:
-      st.set(0, (left - 1 : U32), 0, sz, seen, kind, ch, rate, acc, frames)
+# a chunk after fmt: data is read and ends the walk, anything else is skipped
+def step.post(isd: Bool, fm: Fm, +sz: U32, rest: List<&2, U32>) -> Step:
+  match isd:
     case True{}:
-      st.set(1, 4, word.of(acc, 1), sz, seen, kind, ch, rate, [], frames)
-
-def step.tag(st: St, +hd: U32) -> St:
-  match st:
-    case St{_ph, +left, _tg, sz, seen, kind, ch, rate, acc, frames}:
-      step.tag.at(U32.is_eq(left, 1), left, sz, seen, kind, ch, rate, hd <> acc, frames)
-
-def step.size.done(
-  +sz: U32, +tag: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32, frames: List<&2, U32>
-) -> St:
-  match sz:
-    case 0:
-      st.set(0, 4, tag, sz, seen, kind, ch, rate, [], frames)
-    case _:
-      st.set(2, sz, tag, sz, seen, kind, ch, rate, [], frames)
-
-def step.size.at(
-  last: Bool, +left: U32, +tag: U32, +seen: U32, +kind: U32, +ch: U32, +rate: U32,
-  acc: List<&2, U32>, frames: List<&2, U32>
-) -> St:
-  match last:
+      Fin{data.read(fm, sz, rest)}
     case False{}:
-      st.set(1, (left - 1 : U32), tag, 0, seen, kind, ch, rate, acc, frames)
-    case True{}:
-      step.size.done(word.of(acc, 0), tag, seen, kind, ch, rate, frames)
+      Go{Some{fm}, ls.skip(chunk.span(sz), rest)}
 
-def step.size(st: St, +hd: U32) -> St:
-  match st:
-    case St{_ph, +left, tag, _sz, seen, kind, ch, rate, acc, frames}:
-      step.size.at(U32.is_eq(left, 1), left, tag, seen, kind, ch, rate, hd <> acc, frames)
+def step.on(got: Maybe<&2, Fm>, +tag: U32, +sz: U32, rest: List<&2, U32>) -> Step:
+  match got:
+    case None{}:
+      step.pre(U32.is_eq(tag, tag.fmt()), tag, sz, rest)
+    case Some{fm}:
+      step.post(U32.is_eq(tag, tag.data()), fm, sz, rest)
 
-def step.pad(st: St) -> St:
-  match st:
-    case St{_phase, _left, tag, sz, seen, kind, ch, rate, _acc, frames}:
-      st.set(0, 4, tag, sz, seen, kind, ch, rate, [], frames)
-
-def step.pay.at(
-  last: Bool, +left: U32, +tag: U32, +sz: U32, +seen: U32, +kind: U32, +ch: U32,
-  +rate: U32, acc: List<&2, U32>, frames: List<&2, U32>
-) -> St:
-  match last:
-    case False{}:
-      st.set(2, (left - 1 : U32), tag, sz, seen, kind, ch, rate, acc, frames)
-    case True{}:
-      step.chunk(tag, sz, seen, kind, ch, rate, List.reverse(&2, U32, acc), frames)
-
-def step.pay(st: St, +hd: U32) -> St:
-  match st:
-    case St{_ph, +left, tag, sz, seen, kind, ch, rate, acc, frames}:
-      step.pay.at(U32.is_eq(left, 1), left, tag, sz, seen, kind, ch, rate, hd <> acc, frames)
-
-def step.err.dec(
-  last: Bool, +phase: U32, +left: U32, +tag: U32, +sz: U32, +kind: U32, +ch: U32,
-  +rate: U32, acc: List<&2, U32>, frames: List<&2, U32>
-) -> St:
-  match last:
-    case False{}:
-      st.set(phase, (left - 1 : U32), tag, sz, 3, kind, ch, rate, acc, frames)
-    case True{}:
-      st.set(0, 4, tag, sz, 3, kind, ch, rate, [], frames)
-
-def step.err.keep(+_phase: U32, st: St, +hd: U32) -> St:
-  match st:
-    case St{phase, +left, tag, sz, _sn, kind, ch, rate, acc, frames}:
-      step.err.dec(U32.is_eq(left, 1), phase, left, tag, sz, kind, ch, rate, hd <> acc, frames)
-
-def step.on(+phase: U32, st: St, +hd: U32) -> St:
-  match phase:
-    case 0:
-      step.tag(st, hd)
-    case 1:
-      step.size(st, hd)
-    case 2:
-      step.pay(st, hd)
-    case _:
-      step.pad(st)
-
-def step.bad(bad: Bool, +phase: U32, st: St, +hd: U32) -> St:
-  match bad:
-    case True{}:
-      step.err.keep(phase, st, hd)
-    case False{}:
-      step.on(phase, st, hd)
-
-def step.byte(st: St, +hd: U32) -> St:
-  match st:
-    case St{+phase, +left, +tag, +sz, +seen, +kind, +ch, +rate, +acc, +frames}:
-      step.bad(
-        U32.is_eq(seen, 3), phase,
-        st.set(phase, left, tag, sz, seen, kind, ch, rate, acc, frames), hd)
-
-def walk.go(xs: List<&2, U32>, st: St) -> Maybe<&2, Wav>:
+# read one chunk header. Fewer than eight bytes left, and no data chunk, is none.
+def step.of(got: Maybe<&2, Fm>, xs: List<&2, U32>) -> Step:
   match xs:
-    case Nil{}:
-      st.done(st)
-    case +hd <> tl:
-      walk.go(tl, step.byte(st, hd))
+    case +t0 <> +t1 <> +t2 <> +t3 <> +s0 <> +s1 <> +s2 <> +s3 <> rest:
+      step.on(got, be.u32(t0, t1, t2, t3), le.u32(s0, s1, s2, s3), rest)
+    case _:
+      Fin{None{}}
 
-def open.ok(ok: Bool, rest: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
+# walk the chunks. Each step reads an eight-byte header, so the fuel, one
+# more than the bytes, is never spent first.
+def chunk.walk(fuel: Nat, st: Step) -> Maybe<&2, Wav>:
+  match fuel:
+    case 0n:
+      None{}
+    case 1n+pp:
+      match st:
+        case Fin{got}:
+          got
+        case Go{fm, xs}:
+          chunk.walk(pp, step.of(fm, xs))
+
+def open.ok(ok: Bool, +rest: List<&2, U32>) -> Maybe<&2, Wav>:
   match ok:
     case True{}:
-      Some{rest}
+      chunk.walk(1n+List.length(&2, U32, rest), Go{None{}, rest})
     case False{}:
       None{}
 
-def open.riff(xs: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
+# bytes to a wave, or none when the form is not mono or stereo PCM or float.
+# The RIFF size is not read: the walk stops at the data chunk.
+def wav.parse(xs: List<&2, U32>) -> Maybe<&2, Wav>:
   match xs:
-    case +a <> +b <> +c <> +d <> +s0 <> +s1 <> +s2 <> +s3 <> +w0 <> +w1 <> +w2 <> +w3 <> rest:
+    case +a <> +b <> +c <> +d <> _s0 <> _s1 <> _s2 <> _s3 <> +w0 <> +w1 <> +w2 <> +w3 <> rest:
       open.ok(
         U32.is_eq(be.u32(a, b, c, d), tag.riff()) && U32.is_eq(be.u32(w0, w1, w2, w3), tag.wave()),
         rest)
     case _:
       None{}
-
-def wav.go(got: Maybe<&2, List<&2, U32>>) -> Maybe<&2, Wav>:
-  match got:
-    case None{}:
-      None{}
-    case Some{rest}:
-      walk.go(rest, st.empty())
-
-# bytes to a wave, or none when the form is not mono or stereo PCM or float
-def wav.parse(xs: List<&2, U32>) -> Maybe<&2, Wav>:
-  wav.go(open.riff(xs))
 
 def enc.s16(xs: List<&2, U32>) -> List<&2, U32>:
   match xs:
@@ -446,35 +379,94 @@ def width.of(+kind: U32) -> U32:
     case _:
       32
 
-def enc.head(+rate: U32, +ch: U32, +kind: U32, +nb: U32) -> List<&2, U32>:
+# every sample is below 2^16: ok carries the check so far and stops the walk
+def enc.low16(xs: List<&2, U32>, ok: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      ok
+    case +hd <> tl:
+      match ok:
+        case False{}:
+          False{}
+        case True{}:
+          enc.low16(tl, U32.is_lt(hd, 65536))
+
+# every s16 sample fits its 16 bits; binary32 words always fit
+def enc.fits(+kind: U32, xs: List<&2, U32>) -> Bool:
+  match kind:
+    case 1:
+      enc.low16(xs, True{})
+    case _:
+      True{}
+
+# the header bytes before the samples: 44 for PCM, 58 for float, which also
+# carries cbSize and a fact chunk
+def head.n(+kind: U32) -> U32:
+  match kind:
+    case 1:
+      44
+    case _:
+      58
+
+# the byte rate, the data size and the RIFF size all fit a U32
+def enc.sized(+rate: U32, +ch: U32, +kind: U32, +ns: U32) -> Bool:
+  U32.is_le(rate, U32.div(4294967295, align.of(kind, ch)))
+    && U32.is_le(ns, U32.div((4294967295 - head.n(kind) : U32), U32.div(width.of(kind), 8)))
+
+def enc.fmt.body(+rate: U32, +ch: U32, +kind: U32) -> List<&2, U32>:
+  enc.cat(put.u16(kind),
+    enc.cat(put.u16(ch),
+      enc.cat(put.u32(rate),
+        enc.cat(put.u32((rate * align.of(kind, ch) : U32)),
+          enc.cat(put.u16(align.of(kind, ch)), put.u16(width.of(kind)))))))
+
+# the fmt chunk and, for float, its cbSize and a fact chunk with the frame count
+def enc.fmt(+rate: U32, +ch: U32, +kind: U32, +ns: U32) -> List<&2, U32>:
+  match kind:
+    case 1:
+      enc.cat(put.be(tag.fmt()), enc.cat(put.u32(16), enc.fmt.body(rate, ch, kind)))
+    case _:
+      enc.cat(put.be(tag.fmt()),
+        enc.cat(put.u32(18),
+          enc.cat(enc.fmt.body(rate, ch, kind),
+            enc.cat(put.u16(0),
+              enc.cat(put.be(tag.fact()), enc.cat(put.u32(4), put.u32(U32.div(ns, ch))))))))
+
+def enc.head(+rate: U32, +ch: U32, +kind: U32, +ns: U32, +nb: U32) -> List<&2, U32>:
   enc.cat(put.be(tag.riff()),
-    enc.cat(put.u32((36 + nb : U32)),
+    enc.cat(put.u32(((head.n(kind) - 8 : U32) + nb : U32)),
       enc.cat(put.be(tag.wave()),
-        enc.cat(put.be(tag.fmt()),
-          enc.cat(put.u32(16),
-            enc.cat(put.u16(kind),
-              enc.cat(put.u16(ch),
-                enc.cat(put.u32(rate),
-                  enc.cat(put.u32((rate * align.of(kind, ch) : U32)),
-                    enc.cat(put.u16(align.of(kind, ch)),
-                      enc.cat(put.u16(width.of(kind)),
-                        enc.cat(put.be(tag.data()), put.u32(nb)))))))))))))
+        enc.cat(enc.fmt(rate, ch, kind, ns),
+          enc.cat(put.be(tag.data()), put.u32(nb))))))
 
 def write.some(
-  +rate: U32, +ch: U32, +kind: U32, frames: List<&2, U32>, pcm: List<&2, U32>
+  +rate: U32,
+  +ch: U32,
+  +kind: U32,
+  +ns: U32,
+  pcm: List<&2, U32>
 ) -> Maybe<&2, List<&2, U32>>:
-  nb = enc.bytes(kind, U32.from_nat(List.length(&2, U32, frames)))
-  Some{enc.cat(enc.head(rate, ch, kind, nb), pcm)}
+  Some{enc.cat(enc.head(rate, ch, kind, ns, enc.bytes(kind, ns)), pcm)}
 
 def write.if(
-  ok: Bool, +rate: U32, +ch: U32, +kind: U32, +frames: List<&2, U32>
+  ok: Bool,
+  +rate: U32,
+  +ch: U32,
+  +kind: U32,
+  +ns: U32,
+  frames: List<&2, U32>
 ) -> Maybe<&2, List<&2, U32>>:
   match ok:
     case False{}:
       None{}
     case True{}:
-      write.some(rate, ch, kind, frames, enc.pcm(kind, frames))
+      write.some(rate, ch, kind, ns, enc.pcm(kind, frames))
 
-# a wave file, or none when the clip is not 16-bit PCM or 32-bit float, mono or stereo
-def wav.write(+rate: U32, +ch: U32, +kind: U32, frames: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
-  write.if(enc.ok(ch, kind, rate), rate, ch, kind, frames)
+def write.n(+rate: U32, +ch: U32, +kind: U32, +ns: U32, +frames: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
+  write.if(enc.ok(ch, kind, rate) && enc.sized(rate, ch, kind, ns) && enc.fits(kind, frames), rate, ch, kind, ns,
+    frames)
+
+# a wave file, or none when the clip is not 16-bit PCM or 32-bit float, mono
+# or stereo, an s16 sample does not fit 16 bits, or a size does not fit a U32
+def wav.write(+rate: U32, +ch: U32, +kind: U32, +frames: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
+  write.n(rate, ch, kind, U32.from_nat(List.length(&2, U32, frames)), frames)

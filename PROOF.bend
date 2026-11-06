@@ -17,6 +17,8 @@ import ./proofs/ScaleFactorRowPerRate.bend as PScaleFactorRowPerRate
 import ./proofs/SynthesisAddSums.bend as PSynthesisAddSums
 import ./proofs/TrimKeepsFrameSpan.bend as PTrimKeepsFrameSpan
 import ./proofs/WavChunkIdsAreRiff.bend as PWavChunkIdsAreRiff
+import ./proofs/WavDecodesWellFormed.bend as PWavDecodesWellFormed
 import ./proofs/WavEncodesPcm.bend as PWavEncodesPcm
+import ./proofs/WavReadsOtherWriters.bend as PWavReadsOtherWriters
 import ./proofs/WavRefusesBadInput.bend as PWavRefusesBadInput
 import ./proofs/WavRoundTrips.bend as PWavRoundTrips

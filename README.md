@@ -52,18 +52,33 @@ def main() -> U32:
 
 [LAWS.bend](LAWS.bend) lists what ezaudio guarantees: one file under
 [laws/](laws/) each, proved by the file of the same name under
-[proofs/](proofs/) (`bend PROOF.bend`). Each law is still a closed
-equality on one fixture. They target:
+[proofs/](proofs/) (`bend PROOF.bend`). Most laws are closed equalities on
+one fixture; the ones below that say "for every" are quantified over their
+inputs. They target:
 
 - The IBM/Microsoft RIFF WAVE form: the `RIFF`, `WAVE`, `fmt `, and `data`
   identifiers. A mono signed-16 clip at 8000 Hz encodes as PCM (format tag 1),
   one channel, 16 bits, little-endian samples, and decodes back to that clip.
-  Stereo signed-16, and mono and stereo IEEE 754 binary32 (format tag 3),
-  round-trip the same way, including the bits of 1.0. A byte list that is not
-  RIFF, an empty frame list, and a zero sample rate encode or decode as none.
-- `trim` keeps a span of frames, including the whole clip, and is none past
-  the end. `concat` appends clips that share rate, channels, and format, and
-  is none when they differ.
+  Binary32 encodes as format tag 3 with an 18-byte fmt chunk and a fact chunk.
+  Stereo signed-16, the widest s16 samples, a clip of no frames, and mono and
+  stereo IEEE 754 binary32, round-trip the same way, including the bits of
+  1.0. Every clip `decode_wav` returns, for every input, has one or two
+  channels and whole frames. A clip whose samples are not whole frames does
+  not encode, for every clip; nor does a zero sample rate, an s16 sample of
+  2^16 or more, or a byte rate that does not fit a U32. A byte list that is
+  not RIFF decodes as none.
+- `decode_wav` reads files the way libsndfile, dr_wav, ffmpeg and Python's
+  `wave` do: it stops at the data chunk, so any bytes after it change
+  nothing (for every such tail); a truncated or streamed data chunk
+  (size 0xFFFFFFFF) reads the bytes that are there, cut to whole frames;
+  chunks it does not know are skipped, before and after fmt;
+  WAVE_FORMAT_EXTENSIBLE is read through its sub-format; the byte rate and
+  block align are not checked. Data before fmt is none.
+- `fill` makes `n * channels` samples and `trim` checks its span as natural
+  numbers, for every count, so neither wraps a U32: a span past the end is
+  none, and one that fits keeps exactly `n * channels` samples. `concat`
+  appends clips that share rate, channels, and format, and is none when they
+  differ.
 - [ISO/IEC 11172-3](https://www.iso.org/standard/22412.html) MPEG-1 Layer III:
   the header `FF FB 90 C0` is Layer III, MPEG-1, 128 kbit/s, 44100 Hz, single
   channel. Layer I and Layer II decode as none, as do joint stereo, a CRC,

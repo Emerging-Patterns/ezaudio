@@ -95,9 +95,10 @@ def count(c: Clip) -> U32:
     case Clip{_hz, +nch, _fmt, +pcm}:
       count.of(nch, U32.from_nat(List.length(&2, U32, pcm)))
 
-# one sample, repeated across nframes frames
+# one sample, repeated across nframes frames: nframes * channels samples,
+# counted as natural numbers so the product does not wrap a U32
 def fill(+rate: U32, +channels: U32, format: Format, +sample: U32, +nframes: U32) -> Clip:
-  Clip{rate, channels, format, List.replicate(U32, U32.to_nat((nframes * channels : U32)), sample)}
+  Clip{rate, channels, format, List.replicate(U32, Nat.mul(U32.to_nat(nframes), U32.to_nat(channels)), sample)}
 
 def ls.drop(hop: Nat, xs: List<&2, U32>) -> List<&2, U32>:
   match hop:
@@ -110,19 +111,16 @@ def ls.drop(hop: Nat, xs: List<&2, U32>) -> List<&2, U32>:
         case _hd <> tl:
           ls.drop(p, tl)
 
-def ls.take(hop: Nat, xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+def ls.take(hop: Nat, xs: List<&2, U32>) -> List<&2, U32>:
   match hop:
     case 0n:
-      List.reverse(&2, U32, acc)
+      []
     case 1n+p:
       match xs:
         case Nil{}:
-          List.reverse(&2, U32, acc)
+          []
         case +hd <> tl:
-          ls.take(p, tl, hd <> acc)
-
-def ls.slice(xs: List<&2, U32>, +dropn: U32, +taken: U32) -> List<&2, U32>:
-  ls.take(U32.to_nat(taken), ls.drop(U32.to_nat(dropn), xs), [])
+          hd <> ls.take(p, tl)
 
 def trim.go(
   ok: Bool,
@@ -130,22 +128,27 @@ def trim.go(
   +channels: U32,
   format: Format,
   frames: List<&2, U32>,
-  +start: U32,
-  +nframes: U32
+  +skip: Nat,
+  +keep: Nat
 ) -> Maybe<&2, Clip>:
   match ok:
     case False{}:
       None{}
     case True{}:
-      Some{Clip{rate, channels, format,
-        ls.slice(frames, (start * channels : U32), (nframes * channels : U32))}}
+      Some{Clip{rate, channels, format, ls.take(keep, ls.drop(skip, frames))}}
+
+# the span fits: (start + nframes) * channels samples are there, and a clip
+# with no channels has only the empty span. Counted as natural numbers.
+def trim.fits(+chn: Nat, +span: Nat, +nsamples: Nat) -> Bool:
+  Nat.is_le(Nat.mul(span, chn), nsamples) && Bool.or(Nat.is_ne(chn, 0n), Nat.is_eq(span, 0n))
 
 # frames [start, start + nframes). none when that span passes the end.
 def trim(c: Clip, +start: U32, +nframes: U32) -> Maybe<&2, Clip>:
   match c:
     case Clip{+hz, +nch, fmt, +pcm}:
-      trim.go(U32.is_le((start + nframes : U32), count.of(nch, U32.from_nat(List.length(&2, U32, pcm)))), hz, nch,
-        fmt, pcm, start, nframes)
+      trim.go(
+        trim.fits(U32.to_nat(nch), Nat.add(U32.to_nat(start), U32.to_nat(nframes)), List.length(&2, U32, pcm)), hz,
+        nch, fmt, pcm, Nat.mul(U32.to_nat(start), U32.to_nat(nch)), Nat.mul(U32.to_nat(nframes), U32.to_nat(nch)))
 
 def eq.all(ar: Bool, ac: Bool, af: Bool) -> Bool:
   match ar:
@@ -184,36 +187,47 @@ def concat(left: Clip, right: Clip) -> Maybe<&2, Clip>:
     case Clip{+hz, +nch, +fmt, pcm}:
       concat.pair(hz, nch, fmt, pcm, right)
 
-def list.empty(xs: List<&2, U32>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case _hd <> _tl:
-      False{}
-
-def wav.bytes(empty: Bool, +rate: U32, +channels: U32, +kind: U32, frames: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
-  match empty:
-    case True{}:
-      None{}
+def wav.bytes(whole: Bool, +rate: U32, +channels: U32, +kind: U32, frames: List<&2, U32>) -> Maybe<&2, List<&2, U32>>:
+  match whole:
     case False{}:
+      None{}
+    case True{}:
       Wav.wav.write(rate, channels, kind, frames)
+
+# keep a decoded clip only when it is well formed: one or two channels and
+# whole frames, the sample count a multiple of the channels
+def wav.keep(ok: Bool, c: Clip) -> Maybe<&2, Clip>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      Some{c}
+
+def wav.kept(c: Clip) -> Maybe<&2, Clip>:
+  match c:
+    case Clip{+hz, +nch, fmt, +pcm}:
+      wav.keep(
+        Bool.and(Bool.or(U32.is_eq(nch, 1), U32.is_eq(nch, 2)),
+          Nat.is_eq(Nat.mod(List.length(&2, U32, pcm), U32.to_nat(nch)), 0n)),
+        Clip{hz, nch, fmt, pcm})
 
 def wav.parsed(got: Maybe<&2, Wav.Wav>) -> Maybe<&2, Clip>:
   match got:
     case None{}:
       None{}
     case Some{w}:
-      Some{wav.clip(w)}
+      wav.kept(wav.clip(w))
 
 # a RIFF WAVE clip, or none when the bytes are not mono or stereo PCM or float
 def decode_wav(xs: List<&2, U32>) -> Maybe<&2, Clip>:
   wav.parsed(Wav.wav.parse(xs))
 
-# a RIFF WAVE file. none when there are no frames, or the rate or channels are unfit.
+# a RIFF WAVE file. none when the samples are not whole frames, the rate or
+# channels are unfit, an s16 sample does not fit 16 bits, or a size does not fit.
 def encode_wav(c: Clip) -> Maybe<&2, List<&2, U32>>:
   match c:
     case Clip{+hz, +nch, fmt, +pcm}:
-      wav.bytes(list.empty(pcm), hz, nch, kind.of(fmt), pcm)
+      wav.bytes(Nat.is_eq(Nat.mod(List.length(&2, U32, pcm), U32.to_nat(nch)), 0n), hz, nch, kind.of(fmt), pcm)
 
 def mp3.clip(p: Mp3.Pcm) -> Clip:
   match p:

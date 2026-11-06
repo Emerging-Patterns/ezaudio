@@ -9,8 +9,12 @@
 # decode_mp3). A clip is a sample rate, a channel count, a sample format and
 # interleaved frames.
 #
-# Every law is still a closed equality on one fixture: it checks one input,
-# not every input. Full codec conformance is not claimed.
+# Most laws are closed equalities on one fixture: they check one input. The
+# quantified ones hold for every input: decoded WAV clips are well formed
+# (WavDecodesWellFormed), partial frames do not encode and bytes after the
+# data chunk change nothing (WavRefusesBadInput, WavReadsOtherWriters), and
+# fill and trim count samples without wrapping (FillRepeatsSample,
+# TrimKeepsFrameSpan). Full codec conformance is not claimed.
 import Base
 import ./laws/ClipReadsBack.bend as ClipReadsBack
 import ./laws/ConcatNeedsMatchingClips.bend as ConcatNeedsMatchingClips
@@ -27,6 +31,8 @@ import ./laws/ScaleFactorRowPerRate.bend as ScaleFactorRowPerRate
 import ./laws/SynthesisAddSums.bend as SynthesisAddSums
 import ./laws/TrimKeepsFrameSpan.bend as TrimKeepsFrameSpan
 import ./laws/WavChunkIdsAreRiff.bend as WavChunkIdsAreRiff
+import ./laws/WavDecodesWellFormed.bend as WavDecodesWellFormed
 import ./laws/WavEncodesPcm.bend as WavEncodesPcm
+import ./laws/WavReadsOtherWriters.bend as WavReadsOtherWriters
 import ./laws/WavRefusesBadInput.bend as WavRefusesBadInput
 import ./laws/WavRoundTrips.bend as WavRoundTrips
