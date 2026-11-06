@@ -1,5 +1,10 @@
 # ISO/IEC 11172-3: each silent frame decodes to 1152 zero binary32
-# samples per channel
+# samples per channel. These frames are all zero after the header, on a
+# decoder that has decoded no sound yet: zero spectra on a zero overlap and
+# delay synthesize to zeros, and the decoder takes that path without the
+# filterbank. The checker does not evaluate binary32 arithmetic, so the
+# filterbank's own output is not checked here; bench/compare.nix checks it
+# against ffmpeg.
 import Base
 import ../main.bend as Au
 import ./defs/ByteLists.bend as D1

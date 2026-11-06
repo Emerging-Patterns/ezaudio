@@ -4,3 +4,6 @@ import ../laws/WavEncodesPcm.bend as Laws
 
 def Laws.wav_s16_bytes():
   {==}
+
+def Laws.wav_f32_bytes():
+  {==}

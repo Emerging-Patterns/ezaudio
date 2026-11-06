@@ -1,6 +1,7 @@
 # IBM/Microsoft RIFF WAVE form: decoding what `encode_wav` writes gives
 # back the clip, for mono and stereo signed-16 and for mono and stereo IEEE
-# 754 binary32 (format tag 3), including the bits of 1.0
+# 754 binary32 (format tag 3), including the bits of 1.0, for the widest s16
+# samples, and for a clip of no frames
 import Base
 import ../main.bend as Au
 import ./defs/MonoClip.bend as D1
@@ -24,3 +25,13 @@ law wav_f32_mono:
 law wav_f32_stereo:
   {Au.decode_wav(D2.bytes.of(Au.encode_wav(Au.clip(8000, 2, Au.f32(), [0, 1065353216]))))
     == Some{Au.clip(8000, 2, Au.f32(), [0, 1065353216])} : Maybe<&2, Au.Clip>}
+
+# LAW: IBM/Microsoft RIFF — the widest s16 samples round-trip
+law wav_s16_wide:
+  {Au.decode_wav(D2.bytes.of(Au.encode_wav(Au.clip(44100, 2, Au.s16(), [65535, 32768]))))
+    == Some{Au.clip(44100, 2, Au.s16(), [65535, 32768])} : Maybe<&2, Au.Clip>}
+
+# LAW: IBM/Microsoft RIFF — a clip of no frames round-trips
+law wav_no_frames_round:
+  {Au.decode_wav(D2.bytes.of(Au.encode_wav(Au.clip(8000, 1, Au.s16(), []))))
+    == Some{Au.clip(8000, 1, Au.s16(), [])} : Maybe<&2, Au.Clip>}

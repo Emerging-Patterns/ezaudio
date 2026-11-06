@@ -16,3 +16,6 @@ def Laws.mp3_hz32_frame():
 
 def Laws.mp3_f32_frame():
   {==}
+
+def Laws.mp3_negzero_frame():
+  {==}

@@ -1,16 +1,20 @@
-# the decoder's scale-factor band table has one row of 22 bands per
-# sample rate: 44100 Hz first, then 48000 Hz, then 32000 Hz
+# ISO/IEC 11172-3 Table B.8: the decoder's long-block scale-factor bands at
+# each sampling frequency are these 22 widths, in lines, summing to 576. The
+# decoder places its Huffman region boundaries on them.
 import Base
 import ../src/mp3_dec.bend as Dec
 
-# LAW: the 44100 Hz scale-factor row is the first row
+# LAW: ISO/IEC 11172-3 Table B.8 — the long-block band widths at 44100 Hz
 law scf_44100:
-  {Dec.scf.off(44100) == 0 : U32}
+  {Dec.scf.row(44100) == [4, 4, 4, 4, 4, 4, 6, 6, 8, 8, 10, 12, 16, 20, 24, 28, 34, 42, 50, 54, 76, 158]
+    : List<&2, U32>}
 
-# LAW: the 48000 Hz scale-factor row starts at band 22
+# LAW: ISO/IEC 11172-3 Table B.8 — the long-block band widths at 48000 Hz
 law scf_48000:
-  {Dec.scf.off(48000) == 22 : U32}
+  {Dec.scf.row(48000) == [4, 4, 4, 4, 4, 4, 6, 6, 6, 8, 10, 12, 16, 18, 22, 28, 34, 40, 46, 54, 54, 192]
+    : List<&2, U32>}
 
-# LAW: the 32000 Hz scale-factor row starts at band 44
+# LAW: ISO/IEC 11172-3 Table B.8 — the long-block band widths at 32000 Hz
 law scf_32000:
-  {Dec.scf.off(32000) == 44 : U32}
+  {Dec.scf.row(32000) == [4, 4, 4, 4, 4, 4, 6, 6, 8, 10, 12, 16, 20, 24, 30, 38, 46, 56, 68, 84, 102, 26]
+    : List<&2, U32>}
