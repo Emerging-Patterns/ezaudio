@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.5.0...v0.6.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* the released guarantee mp3_pair is withdrawn, not weakened: its frame bytes and its decoded words were the special cases themselves. encode_mp3 of one mono s16 sample of magnitude 1..15 now writes a filterbank frame, and decode_mp3 of such a frame returns its synthesized samples.
+
+### Bug Fixes
+
+* WAV and MP3 decisions that passed the proof gate ([#57](https://github.com/Emerging-Patterns/ezaudio/issues/57)) ([dfff576](https://github.com/Emerging-Patterns/ezaudio/commit/dfff57625c5383aaabb64f0e32b4418654c355c6))
+
 ## [0.5.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.4.0...v0.5.0) (2026-10-25)
 
 
