@@ -234,14 +234,40 @@ def mp3.clip(p: Mp3.Pcm) -> Clip:
     case Mp3.Pcm{+hz, +ch, pcm}:
       Clip{hz, ch, Flt{}, pcm}
 
+# keep a decoded MP3 clip only when it is whole Layer III frames: one or two
+# channels, and a sample count that is a multiple of 1152 samples a channel
+def mp3.keep(ok: Bool, c: Clip) -> Maybe<&2, Clip>:
+  match ok:
+    case False{}:
+      None{}
+    case True{}:
+      Some{c}
+
+def mp3.kept(c: Clip) -> Maybe<&2, Clip>:
+  match c:
+    case Clip{+hz, +nch, fmt, +pcm}:
+      mp3.keep(
+        Bool.and(Bool.or(U32.is_eq(nch, 1), U32.is_eq(nch, 2)),
+          Nat.is_eq(Nat.mod(List.length(&2, U32, pcm), U32.to_nat((1152 * nch : U32))), 0n)),
+        Clip{hz, nch, fmt, pcm})
+
 def mp3.parsed(got: Maybe<&2, Mp3.Pcm>) -> Maybe<&2, Clip>:
   match got:
     case None{}:
       None{}
     case Some{p}:
-      Some{mp3.clip(p)}
+      mp3.kept(mp3.clip(p))
 
-# MPEG-1 Layer III to f32 frames. Layer I, Layer II, joint stereo, and a CRC are none.
+# MPEG-1 Layer III (ISO/IEC 11172-3) to f32 frames, mono or stereo, at 32000,
+# 44100 or 48000 Hz. A leading ID3v2 tag is skipped by its size, bytes that are
+# not an MPEG-1 Layer III header are stepped over, a first Xing or Info frame is
+# skipped, a CRC is skipped (not checked), and a frame the bytes end inside is
+# dropped. Big values and count1 quadruples are decoded. None when there is no
+# frame, when the rate or channels change, and when any frame uses a bit
+# reservoir (main_data_begin not 0), window switching (block types 1, 2, 3),
+# scale-factor bits (scalefac_compress not 0), preflag, scalefac_scale, or
+# mid/side or intensity stereo: this reads streams like shine's and its own,
+# not typical LAME files.
 def decode_mp3(xs: List<&2, U32>) -> Maybe<&2, Clip>:
   mp3.parsed(Mp3.mp3.decode(xs))
 

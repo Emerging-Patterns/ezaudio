@@ -79,7 +79,7 @@ inputs. They target:
   differ.
 - [ISO/IEC 11172-3](https://www.iso.org/standard/22412.html) MPEG-1 Layer III:
   the header `FF FB 90 C0` is Layer III, MPEG-1, 128 kbit/s, 44100 Hz, single
-  channel. Layer I and Layer II decode as none, as do joint stereo, a CRC,
+  channel. Layer I and Layer II decode as none, as do mid/side joint stereo
   and a header with no frame behind it. A silent frame at 320 kbit/s is the
   header and then zeros for the rest of `1152 * 320 * 125 / hz` bytes:
   `FF FB E0 C4` and 1044 bytes at 44100 Hz mono, `FF FB E0 04` and 1044 bytes
@@ -103,6 +103,24 @@ inputs. They target:
   sample is `FF FB E0 C4` and 1044 bytes, then `FF FB E2 C4` and 1045 bytes,
   at 44100 Hz mono; binary32 zeros of either sign encode the same way.
 
-Decode accepts long blocks only. Short blocks, a non-zero scale-factor
-compress, a bit reservoir, joint stereo, a CRC, the count1 region, preflag,
-and scale-factor scale are none. Full codec conformance is not claimed yet.
+Every clip `decode_mp3` returns, for every input, has one or two channels
+and a multiple of 1152 samples per channel, and two inputs in which it finds
+the same frames decode the same, for every input. It skips a leading ID3v2
+tag by its size (and its footer), steps over bytes that do not start an
+MPEG-1 Layer III header (a Layer I or II header, MPEG-2 and 2.5 syncs, the
+bytes of an APIC picture or an APEv2 tag), skips a first Xing or Info frame,
+and drops a last frame the bytes end inside, as minimp3 and dr_mp3 do. A CRC
+after the header is skipped, not checked. It decodes big values and count1
+quadruples; a quadruple that runs past part2_3_length is discarded, as
+ffmpeg does, and big values past part2_3_length or main data past the frame
+are none.
+
+Decode reads long blocks with no scale-factor bits and no bit reservoir, as
+shine and ezaudio's own encoder write them: it decodes streams like those,
+not typical LAME files. A frame with a bit reservoir (main_data_begin not 0),
+window switching (block types 1, 2 and 3), scale-factor bits
+(scalefac_compress not 0), preflag, scalefac_scale, or mid/side or
+intensity stereo makes the whole decode none, as does a change of rate or
+channels mid-stream: a frame with a valid header is never skipped. A
+free-format stream has no frame it reads, so it is none. Full codec
+conformance is not claimed yet.

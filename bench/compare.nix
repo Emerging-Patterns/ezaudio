@@ -503,7 +503,7 @@ def correct_mp3():
                     add_case("F ffmpeg→ezaudio silence", name, "FAIL", detail)
                 else:
                     add_case("F ffmpeg→ezaudio silence", name, "SKIP",
-                             "decode none (long-block no-CRC only); " + detail,
+                             "decode none (LAME sets preflag; ezaudio reads no scale factors); " + detail,
                              hard=False)
             else:
                 ghz, gnch, gfmt, gpx = got
@@ -513,6 +513,98 @@ def correct_mp3():
                          f"{ghz}/{gnch} n={len(gpx)} rms={rrms:.2e}")
         except Exception as e:
             add_case("F ffmpeg→ezaudio silence", name, "FAIL", repr(e)[:200])
+
+# The hand-made frame of laws/defs/Mp3Frames.bend: 32 kbit/s, 48000 Hz, mono, 96 bytes,
+# big values from tables 1 and 16 (linbits) and count1 quadruples from tables A and B.
+MP3_FIX_HEAD = bytes.fromhex("fffb14c4")
+MP3_FIX_SIDE = bytes([0, 0, 0, 116, 5, 164, 0, 128, 0, 0, 8, 128, 114, 1, 0, 0, 1])
+MP3_FIX_MAIN = bytes([66, 116, 176, 32, 50, 164])
+
+def mp3_snr(ref, got):
+    num = sum(x * x for x in ref)
+    den = sum((y - x) * (y - x) for x, y in zip(ref, got))
+    return 10.0 * math.log10(num / den) if den > 0 else 200.0
+
+def mp3_fix_frame(head=MP3_FIX_HEAD):
+    raw = head + MP3_FIX_SIDE + MP3_FIX_MAIN
+    return raw + bytes(96 - len(raw))
+
+def ffmpeg_mp3_f32le(path):
+    # Correctness only: ffmpeg's binary32 output as is, so samples past 1.0 are not clipped
+    r = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-i", path, "-f", "f32le", "-"],
+                       capture_output=True, timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode("utf-8", "replace")[:200])
+    return list(struct.unpack("<%df" % (len(r.stdout) // 4), r.stdout))
+
+def correct_mp3_decode():
+    log("\n== MP3 decode: count1, framing, CRC (ezaudio vs ffmpeg on the same bytes) ==")
+    frame = mp3_fix_frame()
+    crc = mp3_fix_frame(bytes.fromhex("fffa14c429d1"))  # protection bit 0, CRC-16 of header bytes 2..3 + side info
+    info = MP3_FIX_HEAD + bytes(17) + b"Info" + bytes(96 - 25)
+    junk = bytes([0, 1, 255, 253, 20, 196, 255, 226, 255, 216, 255, 224]) + b"junk"
+    apic = b"APIC" + bytes([0, 0, 0, 24, 0, 0]) + bytes([255, 216, 255, 224]) + MP3_FIX_HEAD + bytes(16)
+    id3 = b"ID3" + bytes([3, 0, 0, 0, 0, 0, len(apic)]) + apic
+    base = frame * 3
+    path = os.path.join(WORK, "dec_base.mp3")
+    open(path, "wb").write(base)
+    r, want = run_decode("mp3-dec", path, 120)
+    if want is None:
+        add_case("H ezaudio mp3 decode", "three fixture frames", "FAIL", f"rc={r['rc']} err={r['err'][:160]}")
+        return
+    ok = want[:3] == (48000, 1, FMT_F32) and len(want[3]) == 3 * 1152
+    add_case("H ezaudio mp3 decode", "three fixture frames", "PASS" if ok else "FAIL",
+             f"{want[0]}/{want[1]} n={len(want[3])}")
+    # same frames, same samples: ffmpeg decodes these bytes without a delay to trim
+    try:
+        a = ffmpeg_mp3_f32le(path)
+        b = [struct.unpack("<f", struct.pack("<I", u))[0] for u in want[3]]
+        snr = mp3_snr(a, b) if len(a) == len(b) else -1.0
+        add_case("H ezaudio mp3 decode", "vs ffmpeg (count1, linbits)", "PASS" if snr > 60.0 else "FAIL",
+                 f"ffmpeg n={len(a)} ezaudio n={len(b)} snr={snr:.1f} dB")
+    except Exception as e:
+        add_case("H ezaudio mp3 decode", "vs ffmpeg (count1, linbits)", "FAIL", repr(e)[:200])
+    variants = [
+        ("ID3v2 tag holding a frame header", id3 + base),
+        ("junk between frames", junk + frame + junk + frame + junk + frame),
+        ("truncated last frame dropped", base + frame[:50]),
+        ("CRC frames", crc * 3),
+        ("CRC frame between plain ones", frame + crc + frame),
+        ("first Info frame skipped", info + base),
+        ("APEv2 and ID3v1 tags after", base + b"APETAGEX" + bytes([255, 226]) + bytes(22) + b"TAG" + bytes(125)),
+    ]
+    for name, raw in variants:
+        vp = os.path.join(WORK, "dec_" + name.replace(" ", "_") + ".mp3")
+        open(vp, "wb").write(raw)
+        r, got = run_decode("mp3-dec", vp, 120)
+        ok = got == want
+        add_case("H ezaudio mp3 decode", name, "PASS" if ok else "FAIL",
+                 f"rc={r['rc']} n={len(got[3]) if got else None} (want {len(want[3])})")
+    # a frame the decoder does not read is never skipped: the whole decode is none
+    vp = os.path.join(WORK, "dec_reservoir.mp3")
+    side = bytearray(MP3_FIX_SIDE); side[1] |= 128  # main_data_begin 1
+    bad = MP3_FIX_HEAD + bytes(side) + MP3_FIX_MAIN
+    open(vp, "wb").write(frame + bad + bytes(96 - len(bad)) + frame)
+    r, got = run_decode("mp3-dec", vp, 120)
+    add_case("H ezaudio mp3 decode", "bit-reservoir frame refuses the stream", "PASS" if got is None else "FAIL",
+             f"rc={r['rc']}")
+    # ezaudio's own encoding of music: both decoders read the same frames
+    fx = fixture("music", 44100, 1, 0.5)
+    eza = os.path.join(WORK, "dec_music.eza")
+    write_eza(eza, fx["hz"], fx["nch"], fx["fmt"], fx["samples"])
+    outp = eza + ".mp3"
+    er = ez(["mp3-enc", eza, outp], 300)
+    r, got = run_decode("mp3-dec", outp, 300) if er["rc"] == 0 else (er, None)
+    try:
+        if got is None:
+            raise RuntimeError(f"rc={r['rc']} err={r['err'][:160]}")
+        a = ffmpeg_mp3_f32le(outp)
+        b = [struct.unpack("<f", struct.pack("<I", u))[0] for u in got[3]]
+        snr = mp3_snr(a, b) if len(a) == len(b) else -1.0
+        add_case("H ezaudio mp3 decode", "ezaudio-encoded music vs ffmpeg", "PASS" if snr > 60.0 else "FAIL",
+                 f"ffmpeg n={len(a)} ezaudio n={len(b)} snr={snr:.1f} dB")
+    except Exception as e:
+        add_case("H ezaudio mp3 decode", "ezaudio-encoded music vs ffmpeg", "FAIL", repr(e)[:200])
 
 def ez_ms_per(parsed, wall, n):
     # Prefer IO.now; fall back to wall/n when the 1ms timer still reads 0.
@@ -701,7 +793,7 @@ def main():
     log("driver ping ok (native ELF)")
     try:
         if MODE in ("correctness", "all"):
-            correct_wav(); correct_mp3()
+            correct_wav(); correct_mp3(); correct_mp3_decode()
         if MODE in ("speed", "all"):
             speed()
     except Exception:

@@ -392,218 +392,209 @@ def mp3.encode(
 ) -> Maybe<&2, List<&2, U32>>:
   mp3.pick(enc.fit(hz, ch), hz, ch, kind, pcm)
 
-# a decoded frame: hertz, channels, interleaved binary32 words
+
+# a decoded stream: hertz, channels, interleaved binary32 words
 type Pcm is Data:
   Pcm{hz: U32, ch: U32, pcm: List<&2, U32>}
 
-# decoder state. phase 0 seeks a header, 1 collects a frame, 2 has failed.
-type Wk is Data:
-  Wk{
-    hz: U32, ch: U32, pcm: List<&2, U32>, ov: List<&2, F32>, qmf: List<&2, F32>, fresh: U32,
-    lib: Dec.Lib, on: U32, phase: U32, left: U32, buf: List<&2, U32>
-  }
+# the first n bytes, the rest, and whether the bytes ran out first
+type Cut is Data:
+  Cut{got: List<&2, U32>, rest: List<&2, U32>, short: Bool}
 
-def le.pick(eq: Bool, +aa: U32, +bb: U32) -> Bool:
-  match eq:
-    case True{}:
-      True{}
-    case False{}:
-      U32.is_lt(aa, bb)
+def cut.go(hop: Nat, xs: List<&2, U32>, acc: List<&2, U32>) -> Cut:
+  match hop xs:
+    case 0n ys:
+      Cut{List.reverse(&2, U32, acc), ys, False{}}
+    case _ Nil{}:
+      Cut{List.reverse(&2, U32, acc), [], True{}}
+    case 1n+p +hd <> tl:
+      cut.go(p, tl, hd <> acc)
 
-def le.u(+aa: U32, +bb: U32) -> Bool:
-  le.pick(U32.is_eq(aa, bb), aa, bb)
-
-def frm.fit(+xs: List<&2, U32>, +nn: U32) -> Bool:
-  le.u(nn, U32.from_nat(List.length(&2, U32, xs)))
-
-def frm.take(+xs: List<&2, U32>, +nn: U32) -> List<&2, U32>:
-  Dec.bd.take(U32.to_nat(nn), xs, [])
-
-def frm.rest(+xs: List<&2, U32>, +nn: U32) -> List<&2, U32>:
-  Dec.bd.drop(U32.to_nat(nn), xs)
-
-def frm.and(aa: Bool, bb: Bool) -> Bool:
-  match aa:
-    case False{}:
-      False{}
-    case True{}:
-      bb
-
-# MPEG-1 Layer III, no CRC, not joint stereo
-def frm.yes(+xs: List<&2, U32>) -> Bool:
-  frm.and(l3.ok(xs), frm.and(U32.is_ne(hdr.mode(xs), 1), U32.is_eq(hdr.crc(xs), 0)))
-
-def wk.make(+hz: U32, +ch: U32, lib: Dec.Lib) -> Wk:
-  Wk{hz, ch, [], Dec.dec.ov(ch), Dec.dec.qmf(), 1, lib, 0, 0, 0, []}
-
-
-def buf.add(xs: List<&2, U32>, +hd: U32) -> List<&2, U32>:
-  List.append(&2, U32, xs, [hd])
-
-def win.tail(xs: List<&2, U32>) -> List<&2, U32>:
+# "Xing" or "Info", a LAME/Xing header frame
+def xing.tag(xs: List<&2, U32>) -> Bool:
   match xs:
-    case _hd <> tl:
-      tl
+    case 88 <> 105 <> 110 <> 103 <> _rest:
+      True{}
+    case 73 <> 110 <> 102 <> 111 <> _rest:
+      True{}
+    case _:
+      False{}
+
+# the tag sits where the main data would start, after the header, CRC and side info
+def xing.is(+fr: List<&2, U32>) -> Bool:
+  xing.tag(Dec.bd.drop(U32.to_nat(((4 + (2 * hdr.crc(fr) : U32) : U32) + side.n(hdr.ch(fr)) : U32)), fr))
+
+# the frame walk: done with the frames found, newest first, or the bytes left, whether no
+# frame has been kept yet, and the frames so far
+type Fq is Data:
+  FqEnd{acc: List<&2, List<&2, U32>>}
+  FqGo{xs: List<&2, U32>, first: Bool, acc: List<&2, List<&2, U32>>}
+
+def fq.keep(info: Bool, got: List<&2, U32>, rest: List<&2, U32>, acc: List<&2, List<&2, U32>>) -> Fq:
+  match info:
+    case True{}:
+      FqGo{rest, False{}, acc}
+    case False{}:
+      FqGo{rest, False{}, got <> acc}
+
+# a Xing or Info frame is skipped when it comes first
+def fq.first(first: Bool, +got: List<&2, U32>, rest: List<&2, U32>, acc: List<&2, List<&2, U32>>) -> Fq:
+  match first:
+    case True{}:
+      fq.keep(xing.is(got), got, rest, acc)
+    case False{}:
+      fq.keep(False{}, got, rest, acc)
+
+# a frame the bytes end inside is dropped, as minimp3 and dr_mp3 drop it
+def fq.cut(cc: Cut, first: Bool, acc: List<&2, List<&2, U32>>) -> Fq:
+  match cc:
+    case Cut{got, rest, short}:
+      match short:
+        case True{}:
+          FqEnd{acc}
+        case False{}:
+          fq.first(first, got, rest, acc)
+
+# a byte that does not start an MPEG-1 Layer III header is junk: step over it
+def fq.tail(xs: List<&2, U32>, first: Bool, acc: List<&2, List<&2, U32>>) -> Fq:
+  match xs:
     case Nil{}:
-      []
+      FqEnd{acc}
+    case _hd <> tl:
+      FqGo{tl, first, acc}
 
-def wk.bad(st: Wk) -> Wk:
+def fq.at(ok: Bool, +xs: List<&2, U32>, first: Bool, acc: List<&2, List<&2, U32>>) -> Fq:
+  match ok:
+    case True{}:
+      fq.cut(cut.go(U32.to_nat(frame.of(xs)), xs, []), first, acc)
+    case False{}:
+      fq.tail(xs, first, acc)
+
+def fq.done(st: Fq) -> List<&2, List<&2, U32>>:
   match st:
-    case Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, _phase, _left, _buf}:
-      Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, 2, 0, []}
+    case FqEnd{acc}:
+      List.reverse(&2, List<&2, U32>, acc)
+    case FqGo{_xs, _first, acc}:
+      List.reverse(&2, List<&2, U32>, acc)
 
-def wk.seek(st: Wk, buf: List<&2, U32>) -> Wk:
+# every step takes at least one byte, so one more step than there are bytes finishes
+def fq.walk(fuel: Nat, st: Fq) -> List<&2, List<&2, U32>>:
+  match fuel:
+    case 0n:
+      fq.done(st)
+    case 1n+p:
+      match st:
+        case FqEnd{acc}:
+          List.reverse(&2, List<&2, U32>, acc)
+        case FqGo{+xs, first, acc}:
+          fq.walk(p, fq.at(l3.ok(xs), xs, first, acc))
+
+# ID3v2 size: four syncsafe bytes, 7 bits each
+def id3.size(+s0: U32, +s1: U32, +s2: U32, +s3: U32) -> U32:
+  ((((s0 << 21n : U32) .|. (s1 << 14n : U32) : U32) .|. (s2 << 7n : U32) : U32) .|. s3 : U32)
+
+def id3.ok(+v0: U32, +s0: U32, +s1: U32, +s2: U32, +s3: U32) -> Bool:
+  U32.is_ne(v0, 255) && U32.is_lt(s0, 128) && U32.is_lt(s1, 128) && U32.is_lt(s2, 128) && U32.is_lt(s3, 128)
+
+# flag bit 4: a 10-byte footer follows the tag
+def id3.foot(on: Bool) -> U32:
+  match on:
+    case True{}:
+      10
+    case False{}:
+      0
+
+def id3.cut(ok: Bool, +size: U32, rest: List<&2, U32>, whole: List<&2, U32>) -> List<&2, U32>:
+  match ok:
+    case True{}:
+      Dec.bd.drop(U32.to_nat(size), rest)
+    case False{}:
+      whole
+
+def id3.at(xs: List<&2, U32>, whole: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case 73 <> 68 <> 51 <> +v0 <> _v1 <> +fl <> +s0 <> +s1 <> +s2 <> +s3 <> rest:
+      id3.cut(id3.ok(v0, s0, s1, s2, s3),
+        (id3.size(s0, s1, s2, s3) + id3.foot(U32.is_ne((fl .&. 16 : U32), 0)) : U32), rest, whole)
+    case _:
+      whole
+
+# a leading ID3v2 tag ("ID3", version, flags, syncsafe size) is skipped by its size
+def id3.skip(+xs: List<&2, U32>) -> List<&2, U32>:
+  id3.at(xs, xs)
+
+def fq.start(+xs: List<&2, U32>) -> List<&2, List<&2, U32>>:
+  fq.walk(1n+List.length(&2, U32, xs), FqGo{xs, True{}, []})
+
+# the whole frames of a stream, each starting with its header: a leading ID3v2 tag is
+# skipped by its size, bytes that are not an MPEG-1 Layer III header are stepped over, a
+# Xing or Info frame is skipped when it is the first frame, and a frame the bytes end
+# inside is dropped
+def mp3.frames(xs: List<&2, U32>) -> List<&2, List<&2, U32>>:
+  fq.start(id3.skip(xs))
+
+# mode extension: in joint stereo, bit 1 is mid/side and bit 0 is intensity stereo
+def hdr.ext(xs: List<&2, U32>) -> U32:
+  match xs:
+    case _b0 <> _b1 <> _b2 <> +b3 <> _rest:
+      ((b3 >> 4n : U32) .&. 3 : U32)
+    case _:
+      0
+
+def mode.ok(+mode: U32, +ext: U32) -> Bool:
+  match mode:
+    case 1:
+      U32.is_eq(ext, 0)
+    case _:
+      True{}
+
+# the stream's rate and channels hold, and joint stereo uses neither mid/side nor intensity
+def play.ok(+fr: List<&2, U32>, +hz: U32, +ch: U32) -> Bool:
+  U32.is_eq(hdr.hz(fr), hz) && U32.is_eq(hdr.ch(fr), ch) && mode.ok(hdr.mode(fr), hdr.ext(fr))
+
+def play.frame(+fr: List<&2, U32>, +st: Dec.St) -> Maybe<&2, Dec.St>:
   match st:
-    case Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, _phase, _left, _buf}:
-      Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, 0, 0, buf}
+    case Dec.St{+hz, +ch, ov, qmf, fresh, lib, acc}:
+      Dec.dec.frame(play.ok(fr, hz, ch), fr, hdr.crc(fr), Dec.St{hz, ch, ov, qmf, fresh, lib, acc})
 
-def wk.read(st: Wk, +left: U32, buf: List<&2, U32>) -> Wk:
-  match st:
-    case Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, _phase, _left, _buf}:
-      Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, 1, left, buf}
-
-def wk.fail(+hz: U32, +ch: U32, pcm: List<&2, U32>) -> Wk:
-  Wk{hz, ch, pcm, [], [], 0, Dec.lib.of(), 0, 2, 0, []}
-
-def walk.keep(oo: Dec.Out, +hz: U32, +ch: U32, +pcm0: List<&2, U32>) -> Wk:
-  match oo:
-    case Dec.Out{pcm, ov, qmf, fresh, lib}:
-      Wk{hz, ch, List.append(&2, U32, pcm0, pcm), ov, qmf, fresh, lib, 1, 0, 0, []}
-
-def walk.apply(got: Maybe<&2, Dec.Out>, +hz: U32, +ch: U32, pcm0: List<&2, U32>) -> Wk:
+def play.step(+fr: List<&2, U32>, got: Maybe<&2, Dec.St>) -> Maybe<&2, Dec.St>:
   match got:
     case None{}:
-      wk.fail(hz, ch, pcm0)
-    case Some{oo}:
-      walk.keep(oo, hz, ch, pcm0)
-
-def wk.eq(eqh: Bool, eqc: Bool) -> Bool:
-  match eqh:
-    case False{}:
-      False{}
-    case True{}:
-      eqc
-
-def walk.fr2(
-  ok: Bool, +buf: List<&2, U32>, +hz: U32, +ch: U32, pcm0: List<&2, U32>, ov: List<&2, F32>,
-  qmf: List<&2, F32>, +fresh: U32, lib: Dec.Lib
-) -> Wk:
-  match ok:
-    case False{}:
-      wk.fail(hz, ch, pcm0)
-    case True{}:
-      walk.apply(Dec.dec.step(buf, ch, ov, qmf, fresh, lib), hz, ch, pcm0)
-
-def walk.fr1(+buf: List<&2, U32>, +hz: U32, +ch: U32, lib: Dec.Lib) -> Wk:
-  walk.apply(Dec.dec.step(buf, ch, Dec.dec.ov(ch), Dec.dec.qmf(), 1, lib), hz, ch, [])
-
-def walk.fr0(
-  cold: Bool, +buf: List<&2, U32>, +hz0: U32, +ch0: U32, pcm0: List<&2, U32>, ov: List<&2, F32>,
-  qmf: List<&2, F32>, +fresh: U32, lib: Dec.Lib
-) -> Wk:
-  match cold:
-    case True{}:
-      walk.fr1(buf, hdr.hz(buf), hdr.ch(buf), Dec.lib.use(lib, hdr.hz(buf)))
-    case False{}:
-      walk.fr2(wk.eq(U32.is_eq(hdr.hz(buf), hz0), U32.is_eq(hdr.ch(buf), ch0)), buf, hz0, ch0, pcm0, ov,
-        qmf, fresh, lib)
-
-def walk.frame(
-  +buf: List<&2, U32>, +hz: U32, +ch: U32, pcm: List<&2, U32>, ov: List<&2, F32>, qmf: List<&2, F32>,
-  +fresh: U32, lib: Dec.Lib, +on: U32
-) -> Wk:
-  walk.fr0(U32.is_eq(on, 0), buf, hz, ch, pcm, ov, qmf, fresh, lib)
-
-def walk.rd2(
-  done: Bool, +hz: U32, +ch: U32, pcm: List<&2, U32>, ov: List<&2, F32>, qmf: List<&2, F32>,
-  +fresh: U32, lib: Dec.Lib, +on: U32, +left: U32, buf: List<&2, U32>
-) -> Wk:
-  match done:
-    case False{}:
-      Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, 1, (left - 1 : U32), buf}
-    case True{}:
-      walk.frame(buf, hz, ch, pcm, ov, qmf, fresh, lib, on)
-
-def walk.arm(big: Bool, st: Wk, +buf: List<&2, U32>) -> Wk:
-  match big:
-    case False{}:
-      wk.bad(st)
-    case True{}:
-      wk.read(st, (frame.of(buf) - 4 : U32), buf)
-
-def walk.good(ok: Bool, st: Wk, +buf: List<&2, U32>) -> Wk:
-  match ok:
-    case False{}:
-      wk.bad(st)
-    case True{}:
-      walk.arm(le.u(5, frame.of(buf)), st, buf)
-
-def walk.hdr(sync: Bool, st: Wk, +buf: List<&2, U32>) -> Wk:
-  match sync:
-    case False{}:
-      wk.seek(st, win.tail(buf))
-    case True{}:
-      walk.good(frm.yes(buf), st, buf)
-
-def walk.seen2(full: Bool, +buf: List<&2, U32>, st: Wk) -> Wk:
-  match full:
-    case False{}:
-      st
-    case True{}:
-      walk.hdr(hdr.sync(buf), st, buf)
-
-def walk.seen(full: Bool, st: Wk) -> Wk:
-  match st:
-    case Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, phase, left, +buf}:
-      walk.seen2(full, buf, Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, phase, left, buf})
-
-def walk.ph(
-  +phase: U32, +hz: U32, +ch: U32, pcm: List<&2, U32>, ov: List<&2, F32>, qmf: List<&2, F32>,
-  +fresh: U32, lib: Dec.Lib, +on: U32, +left: U32, +buf: List<&2, U32>, +hd: U32
-) -> Wk:
-  match phase:
-    case 2:
-      Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, 2, 0, []}
-    case 1:
-      walk.rd2(U32.is_eq(left, 1), hz, ch, pcm, ov, qmf, fresh, lib, on, left, buf.add(buf, hd))
-    case _:
-      walk.seen(U32.is_eq(U32.from_nat(List.length(&2, U32, buf.add(buf, hd))), 4),
-        Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, 0, 0, buf.add(buf, hd)})
-
-def walk.byte(st: Wk, +hd: U32) -> Wk:
-  match st:
-    case Wk{hz, ch, pcm, ov, qmf, fresh, lib, on, phase, left, buf}:
-      walk.ph(phase, hz, ch, pcm, ov, qmf, fresh, lib, on, left, buf, hd)
-
-def walk.done(ok: Bool, +hz: U32, +ch: U32, pcm: List<&2, U32>) -> Maybe<&2, Pcm>:
-  match ok:
-    case False{}:
       None{}
-    case True{}:
-      Some{Pcm{hz, ch, pcm}}
+    case Some{st}:
+      play.frame(fr, st)
 
-def walk.fin(seek: Bool, have: Bool, +hz: U32, +ch: U32, pcm: List<&2, U32>) -> Maybe<&2, Pcm>:
-  match seek:
-    case False{}:
-      None{}
-    case True{}:
-      walk.done(have, hz, ch, pcm)
-
-def walk.finish(st: Wk) -> Maybe<&2, Pcm>:
-  match st:
-    case Wk{+hz, +ch, pcm, _ov, _qmf, _fresh, _lib, on, phase, _left, _buf}:
-      walk.fin(U32.is_eq(phase, 0), U32.is_eq(on, 1), hz, ch, pcm)
-
-def walk.go(xs: List<&2, U32>, st: Wk) -> Maybe<&2, Pcm>:
-  match xs:
+def play.go(fs: List<&2, List<&2, U32>>, got: Maybe<&2, Dec.St>) -> Maybe<&2, Dec.St>:
+  match fs:
     case Nil{}:
-      walk.finish(st)
+      got
     case +hd <> tl:
-      walk.go(tl, walk.byte(st, hd))
+      play.go(tl, play.step(hd, got))
 
-def wk.zero() -> Wk:
-  Wk{0, 0, [], [], [], 1, Dec.lib.of(), 0, 0, 0, []}
+def play.end(got: Maybe<&2, Dec.St>) -> Maybe<&2, Pcm>:
+  match got:
+    case None{}:
+      None{}
+    case Some{st}:
+      match st:
+        case Dec.St{hz, ch, _ov, _qmf, _fresh, _lib, acc}:
+          Some{Pcm{hz, ch, List.reverse(&2, U32, acc)}}
 
-# bytes in, PCM out. Layer I, Layer II, joint stereo, a CRC, and a bit reservoir are none.
+# decode frames in order. The first frame sets the rate and channels; no frames is none.
+def mp3.play(fs: List<&2, List<&2, U32>>) -> Maybe<&2, Pcm>:
+  match fs:
+    case Nil{}:
+      None{}
+    case +hd <> tl:
+      play.end(play.go(hd <> tl, Some{Dec.st.fresh(hdr.hz(hd), hdr.ch(hd))}))
+
+# the quantized lines and global_gain of each granule channel of one frame, in bitstream
+# order, before requantization
+def mp3.lines(+fr: List<&2, U32>) -> Maybe<&2, List<&2, Dec.Gl>>:
+  Dec.dec.gls(fr, hdr.ch(fr), hdr.crc(fr), Dec.lib.of(hdr.hz(fr)))
+
+# bytes in, PCM out: the frames mp3.frames finds, decoded. none when a frame holds what the
+# decoder does not read (see Dec.dec.gls), uses mid/side or intensity stereo, or changes
+# the rate or channels, and when there is no frame at all.
 def mp3.decode(xs: List<&2, U32>) -> Maybe<&2, Pcm>:
-  walk.go(xs, wk.zero())
+  mp3.play(mp3.frames(xs))
