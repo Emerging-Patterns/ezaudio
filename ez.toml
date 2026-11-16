@@ -4,8 +4,8 @@ entry = "main.bend"
 [tools]
 [tools.bolt]
 git = "https://github.com/Emerging-Patterns/bolt"
-rev = "26391508a28b69077aaf59b75a80f774a455bca5"
-tag = "v1.66.0"
+rev = "1290c9f0708031ce7678bff7b020df50d9d7d570"
+tag = "v1.67.0"
 root = "."
-narHash = "sha256-gldg9U4c/Rq1W/9sdhxSPCbujQ8LpHR8edQwbM3tNXM="
+narHash = "sha256-CYrSS0HoU4VEiagnoTbf7oLj6hRTzs6IvPFDAFIxdo0="
 entry = "main.bend"
