@@ -26,8 +26,8 @@
 # own bits (Mp3HeaderFieldsRead); decoded MP3 clips are whole Layer III
 # frames (Mp3DecodesWholeFrames), and an MP3 decode depends on the bytes
 # only through the frames found in them (Mp3DecodeReadsFrames). Single
-# fixtures are not laws; the bench's wave check compares them with ffmpeg.
-# Full codec conformance is not claimed.
+# fixtures are not laws: tests/fixtures.bend checks them, under `ez test` and
+# the flake's fixtures check. Full codec conformance is not claimed.
 import Base
 import ./laws/ClipReadsBack.bend as ClipReadsBack
 import ./laws/ConcatNeedsMatchingClips.bend as ConcatNeedsMatchingClips

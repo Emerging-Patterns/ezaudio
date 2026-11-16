@@ -34,6 +34,17 @@
             inherit pkgs bend bend-cc self;
             lib = pkgs.lib;
           };
+
+          # tests/fixtures.bend: single-input checks that are not laws; its run
+          # must print exactly the lines its `#|` trailer states
+          fixtures = pkgs.runCommand "ezaudio-fixtures" { nativeBuildInputs = [ bend ]; } ''
+            cp -r ${self}/main.bend ${self}/src ${self}/laws ${self}/fixtures ${self}/tests .
+            export BEND_NO_TELEMETRY=1 HOME=$TMPDIR
+            bend tests/fixtures.bend > got.txt
+            grep '^#|' tests/fixtures.bend | sed 's/^#|//' > want.txt
+            diff want.txt got.txt
+            touch $out
+          '';
         in {
           packages = {
             inherit bend bend-cc;
@@ -46,6 +57,7 @@
           checks = {
             proofs = ez.mkProofs { ez = ezBin; src = self; };
             lint = ez.mkLint { src = self; };
+            inherit fixtures;
           } // bench.checks;
 
           devShells.default = ez.mkShell {

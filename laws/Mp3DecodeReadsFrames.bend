@@ -2,7 +2,8 @@
 # finds, for every input: two byte strings with the same frames decode the
 # same. What mp3.frames skips (a leading ID3v2 tag, bytes that do not start
 # an MPEG-1 Layer III header, a first Xing or Info frame, a last frame the
-# bytes end inside) is the README's description; no law here proves it.
+# bytes end inside) is checked on fixture frames by tests/fixtures.bend; no
+# law here proves it.
 import Base
 import ../main.bend as Au
 import ../src/mp3.bend as Mp3

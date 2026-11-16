@@ -52,9 +52,10 @@ def main() -> U32:
 [laws/](laws/) each, proved by the file of the same name under
 [proofs/](proofs/) (`bend PROOF.bend`). Every law holds for every input
 its binders range over: the statements below that say "for every" are
-laws. The rest describes behaviour on particular files; the bench's wave
-check (`nix flake check`) compares it with ffmpeg and Python's `wave`, and
-no law proves it. They target:
+laws. The rest describes behaviour on particular files, which no law
+proves: [tests/fixtures.bend](tests/fixtures.bend) checks it byte for byte
+and the bench's wave check compares it with ffmpeg and Python's `wave`,
+both under `nix flake check`. They target:
 
 - The IBM/Microsoft RIFF WAVE form: every file `encode_wav` writes, for
   every clip, has the `RIFF`, `WAVE` and `fmt ` identifiers, and a `data`
