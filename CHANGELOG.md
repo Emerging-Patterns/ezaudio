@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.6.0...v0.7.0) (2026-11-16)
+
+
+### Bug Fixes
+
+* **lint:** ez 1.16.0, bolt 1.65.0; clear bolt findings ([#62](https://github.com/Emerging-Patterns/ezaudio/issues/62)) ([a115954](https://github.com/Emerging-Patterns/ezaudio/commit/a11595413604aca20a9af49c157a2b9520546427))
+
 ## [0.6.0](https://github.com/Emerging-Patterns/ezaudio/compare/v0.5.0...v0.6.0) (2026-11-06)
 
 
