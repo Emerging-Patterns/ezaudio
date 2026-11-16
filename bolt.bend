@@ -29,7 +29,3 @@ def coverage() -> String:
 # bolt 1.8.0 wrap: warn until the findings are fixed (see the tracking issue)
 def wrap() -> String:
   "warn"
-
-# bolt 1.8.0 param: warn until the findings are fixed (see the tracking issue)
-def param() -> String:
-  "warn"
