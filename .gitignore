@@ -6,3 +6,4 @@ bin/
 .gate/
 *.gpu
 .claude/
+.direnv/
