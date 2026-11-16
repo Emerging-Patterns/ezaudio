@@ -97,7 +97,11 @@ def y.step(got: Xs, bins: Array<F32>, +w: F32, +ii: U32) -> Yr:
 
 # window the 512-slot ring in place: multiply by win and fold into 64 bins
 def y.ring(
-  win: List<&2, F32>, got: Yr, +head: U32, +k: U32, +ii: U32
+  win: List<&2, F32>,
+  got: Yr,
+  +head: U32,
+  +k: U32,
+  +ii: U32
 ) -> Yr:
   match win got:
     case Nil{} yr:
@@ -131,7 +135,11 @@ def dot.row(ys: List<&2, F32>, tab: Array<F32>, +base: U32, acc: F32) -> Array<F
       dot.go(tl, cf.of(Array.get(F32, tab, base)), base, hd, acc)
 
 def sb.go(
-  hop: Nat, got: Cf, +ys: List<&2, F32>, +row: U32, acc: List<&2, F32>
+  hop: Nat,
+  got: Cf,
+  +ys: List<&2, F32>,
+  +row: U32,
+  acc: List<&2, F32>
 ) -> Array<F32> & List<&2, F32>:
   match hop got:
     case 0n Cf{tab, dd}:
@@ -141,7 +149,11 @@ def sb.go(
         ((dd / 2.0 : F32) <> acc))
 
 def sb.rows(
-  hop: Nat, tab: Array<F32>, +ys: List<&2, F32>, +row: U32, acc: List<&2, F32>
+  hop: Nat,
+  tab: Array<F32>,
+  +ys: List<&2, F32>,
+  +row: U32,
+  acc: List<&2, F32>
 ) -> Array<F32> & List<&2, F32>:
   match hop:
     case 0n:
@@ -164,7 +176,10 @@ def an.sb1(got: Yr, cos: Array<F32>) -> As:
 
 # subband samples of one ring state. head indexes the oldest of 512 samples.
 def an.sb(
-  x: Array<F32>, +head: U32, +win: List<&2, F32>, cos: Array<F32>
+  x: Array<F32>,
+  +head: U32,
+  +win: List<&2, F32>,
+  cos: Array<F32>
 ) -> As:
   an.sb1(y.ring(win, Yr{x, Array.new(F32, 6n, 0.0)}, head, 0, 0), cos)
 
@@ -193,15 +208,6 @@ def an.push(st: An, blk: List<&2, F32>, +win: List<&2, F32>, cos: Array<F32>) ->
       an.done(((head + 32 : U32) .&. 511 : U32), out,
         an.sb(an.write(32n, x, head, blk), ((head + 32 : U32) .&. 511 : U32), win, cos))
 
-def an.blk(
-  +s00: F32, +s01: F32, +s02: F32, +s03: F32, +s04: F32, +s05: F32, +s06: F32, +s07: F32,
-  +s08: F32, +s09: F32, +s10: F32, +s11: F32, +s12: F32, +s13: F32, +s14: F32, +s15: F32,
-  +s16: F32, +s17: F32, +s18: F32, +s19: F32, +s20: F32, +s21: F32, +s22: F32, +s23: F32,
-  +s24: F32, +s25: F32, +s26: F32, +s27: F32, +s28: F32, +s29: F32, +s30: F32, +s31: F32
-) -> List<&2, F32>:
-  [s00, s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14, s15,
-   s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, s28, s29, s30, s31]
-
 # the delay line paired with the cosine table, which has one owner
 type Aw is Type:
   Aw{st: An, cos: Array<F32>}
@@ -215,9 +221,8 @@ def an.go(xs: List<&2, F32>, got: Aw, +win: List<&2, F32>) -> An & Array<F32>:
     case +s00 <> +s01 <> +s02 <> +s03 <> +s04 <> +s05 <> +s06 <> +s07 <> +s08 <> +s09 <> +s10
       <> +s11 <> +s12 <> +s13 <> +s14 <> +s15 <> +s16 <> +s17 <> +s18 <> +s19 <> +s20 <> +s21
       <> +s22 <> +s23 <> +s24 <> +s25 <> +s26 <> +s27 <> +s28 <> +s29 <> +s30 <> +s31 <> rest Aw{st, cos}:
-      an.go(rest, aw.of(an.push(st, an.blk(s00, s01, s02, s03, s04, s05, s06, s07, s08, s09,
-        s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26,
-        s27, s28, s29, s30, s31), win, cos)), win)
+      an.go(rest, aw.of(an.push(st, [s00, s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13,
+        s14, s15, s16, s17, s18, s19, s20, s21, s22, s23, s24, s25, s26, s27, s28, s29, s30, s31], win, cos)), win)
     case _ Aw{st, cos}:
       (st, cos)
 
@@ -789,163 +794,83 @@ def cd.best(+ht: Ht, +xs: List<&2, U32>, +mx: U32) -> Cand:
 type Sr is Data:
   Sr{lo: U32, hi: U32, gg: U32, tab: U32, ix: List<&2, U32>, ok: Bool}
 
-def sr.fit(
-  good: Bool,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +tab: U32,
-  ix: List<&2, U32>,
-  +ogg: U32,
-  +otab: U32,
-  oix: List<&2, U32>,
-  ook: Bool
-) -> Sr:
+# the search window: the gains still open and the one tried this step
+type Sw is Data:
+  Sw{lo: U32, hi: U32, mid: U32}
+
+# the finest gain that fit so far, with its table and values
+type Bs is Data:
+  Bs{gg: U32, tab: U32, ix: List<&2, U32>, ok: Bool}
+
+# the best so far stays, under the new window
+def sr.keep(+lo: U32, +hi: U32, old: Bs) -> Sr:
+  match old:
+    case Bs{+gg, +tab, ix, ok}:
+      Sr{lo, hi, gg, tab, ix, ok}
+
+# a gain that fits narrows the search to finer gains and becomes the best; one that does not
+# narrows it to coarser gains and keeps the best so far
+def sr.fit.at(good: Bool, +lo: U32, +hi: U32, +mid: U32, +tab: U32, ix: List<&2, U32>, old: Bs) -> Sr:
   match good:
     case True{}:
       Sr{lo, (mid - 1 : U32), mid, tab, ix, True{}}
     case False{}:
-      Sr{(mid + 1 : U32), hi, ogg, otab, oix, ook}
+      sr.keep((mid + 1 : U32), hi, old)
+
+def sr.fit(good: Bool, w: Sw, +tab: U32, ix: List<&2, U32>, old: Bs) -> Sr:
+  match w:
+    case Sw{+lo, +hi, +mid}:
+      sr.fit.at(good, lo, hi, mid, tab, ix, old)
 
 def sr.good(ok: Bool, +nn: U32, +bud: U32, +mx: U32) -> Bool:
   Bool.and(ok, Bool.and(U32.is_le(nn, bud), U32.is_lt(mx, 8000)))
 
-def sr.cd(
-  cd: Cand,
-  +mx: U32,
-  +bud: U32,
-  ix: List<&2, U32>,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +ogg: U32,
-  +otab: U32,
-  oix: List<&2, U32>,
-  ook: Bool
-) -> Sr:
+def sr.cd(cd: Cand, +mx: U32, +bud: U32, ix: List<&2, U32>, w: Sw, old: Bs) -> Sr:
   match cd:
     case Cand{+tab, +nn, ok}:
-      sr.fit(sr.good(ok, nn, bud, mx), lo, hi, mid, tab, ix, ogg, otab, oix, ook)
+      sr.fit(sr.good(ok, nn, bud, mx), w, tab, ix, old)
 
-def sr.mx(
-  +mx: U32,
-  +xs: List<&2, U32>,
-  +ht: Ht,
-  +bud: U32,
-  ix: List<&2, U32>,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +ogg: U32,
-  +otab: U32,
-  oix: List<&2, U32>,
-  ook: Bool
-) -> Sr:
-  sr.cd(cd.best(ht, xs, mx), mx, bud, ix, lo, hi, mid, ogg, otab, oix, ook)
+def sr.mx(+mx: U32, +xs: List<&2, U32>, +ht: Ht, +bud: U32, ix: List<&2, U32>, w: Sw, old: Bs) -> Sr:
+  sr.cd(cd.best(ht, xs, mx), mx, bud, ix, w, old)
 
-def sr.pairs(
-  +xs: List<&2, U32>,
-  ix: List<&2, U32>,
-  +ht: Ht,
-  +bud: U32,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +ogg: U32,
-  +otab: U32,
-  oix: List<&2, U32>,
-  ook: Bool
-) -> Sr:
-  sr.mx(ix.max(xs, 0), xs, ht, bud, ix, lo, hi, mid, ogg, otab, oix, ook)
+def sr.pairs(+xs: List<&2, U32>, ix: List<&2, U32>, +ht: Ht, +bud: U32, w: Sw, old: Bs) -> Sr:
+  sr.mx(ix.max(xs, 0), xs, ht, bud, ix, w, old)
 
-def sr.zero(
-  zz: Bool,
-  +big: U32,
-  +ix: List<&2, U32>,
-  +ht: Ht,
-  +bud: U32,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +ogg: U32,
-  +otab: U32,
-  oix: List<&2, U32>,
-  ook: Bool
-) -> Sr:
+def sr.zero(zz: Bool, +big: U32, +ix: List<&2, U32>, +ht: Ht, +bud: U32, w: Sw, old: Bs) -> Sr:
   match zz:
     case True{}:
-      sr.fit(True{}, lo, hi, mid, 0, ix, ogg, otab, oix, ook)
+      sr.fit(True{}, w, 0, ix, old)
     case False{}:
-      sr.pairs(take.u(U32.to_nat((big * 2 : U32)), ix, []), ix, ht, bud, lo, hi, mid, ogg, otab, oix, ook)
+      sr.pairs(take.u(U32.to_nat((big * 2 : U32)), ix, []), ix, ht, bud, w, old)
 
-def sr.big(
-  +big: U32,
-  +ix: List<&2, U32>,
-  +ht: Ht,
-  +bud: U32,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +ogg: U32,
-  +otab: U32,
-  oix: List<&2, U32>,
-  ook: Bool
-) -> Sr:
-  sr.zero(U32.is_eq(big, 0), big, ix, ht, bud, lo, hi, mid, ogg, otab, oix, ook)
+def sr.big(+big: U32, +ix: List<&2, U32>, +ht: Ht, +bud: U32, w: Sw, old: Bs) -> Sr:
+  sr.zero(U32.is_eq(big, 0), big, ix, ht, bud, w, old)
 
-def sr.q(
-  +ix: List<&2, U32>,
-  +hz: U32,
-  +bud: U32,
-  +ht: Ht,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +ogg: U32,
-  +otab: U32,
-  oix: List<&2, U32>,
-  ook: Bool
-) -> Sr:
-  sr.big(bv.of(ix, hz), ix, ht, bud, lo, hi, mid, ogg, otab, oix, ook)
+def sr.q(+ix: List<&2, U32>, +hz: U32, +bud: U32, +ht: Ht, w: Sw, old: Bs) -> Sr:
+  sr.big(bv.of(ix, hz), ix, ht, bud, w, old)
 
-def sr.try(
-  +spec: List<&2, F32>,
-  +hz: U32,
-  +bud: U32,
-  +ht: Ht,
-  +lo: U32,
-  +hi: U32,
-  +mid: U32,
-  +gg: U32,
-  +tab: U32,
-  ix: List<&2, U32>,
-  ok: Bool
-) -> Sr:
-  sr.q(q.all(spec, gain.inv(mid)), hz, bud, ht, lo, hi, mid, gg, tab, ix, ok)
+def sr.try(+spec: List<&2, F32>, +hz: U32, +bud: U32, +ht: Ht, w: Sw, old: Bs) -> Sr:
+  match w:
+    case Sw{+lo, +hi, +mid}:
+      sr.q(q.all(spec, gain.inv(mid)), hz, bud, ht, Sw{lo, hi, mid}, old)
 
-def sr.live(
-  go: Bool,
-  +spec: List<&2, F32>,
-  +hz: U32,
-  +bud: U32,
-  +ht: Ht,
-  +lo: U32,
-  +hi: U32,
-  +gg: U32,
-  +tab: U32,
-  ix: List<&2, U32>,
-  ok: Bool
-) -> Sr:
+# the search is closed: the window and the best so far, as they are
+def sr.stop(w: Sw, old: Bs) -> Sr:
+  match w:
+    case Sw{+lo, +hi, _mid}:
+      sr.keep(lo, hi, old)
+
+def sr.live(go: Bool, +spec: List<&2, F32>, +hz: U32, +bud: U32, +ht: Ht, w: Sw, old: Bs) -> Sr:
   match go:
     case False{}:
-      Sr{lo, hi, gg, tab, ix, ok}
+      sr.stop(w, old)
     case True{}:
-      sr.try(spec, hz, bud, ht, lo, hi, U32.div((lo + hi : U32), 2), gg, tab, ix, ok)
+      sr.try(spec, hz, bud, ht, w, old)
 
 def sr.step(+spec: List<&2, F32>, +hz: U32, +bud: U32, +ht: Ht, st: Sr) -> Sr:
   match st:
     case Sr{+lo, +hi, +gg, +tab, ix, ok}:
-      sr.live(U32.is_le(lo, hi), spec, hz, bud, ht, lo, hi, gg, tab, ix, ok)
+      sr.live(U32.is_le(lo, hi), spec, hz, bud, ht, Sw{lo, hi, U32.div((lo + hi : U32), 2)}, Bs{gg, tab, ix, ok})
 
 # 8 halvings settle a global_gain in 0..255; spec holds |xr| ^ 0.75
 def sr.go(hop: Nat, +spec: List<&2, F32>, +hz: U32, +bud: U32, +ht: Ht, st: Sr) -> Sr:
@@ -1141,7 +1066,10 @@ def bt.dot(vec: List<&2, F32>, tab: Array<F32>, +base: U32, acc: F32) -> Array<F
       bt.go(tl, bf.of(Array.get(F32, tab, base)), base, hd, acc)
 
 def col.b(
-  hop: Nat, xs: List<&2, List<&2, F32>>, +band: U32, acc: List<&2, F32>
+  hop: Nat,
+  xs: List<&2, List<&2, F32>>,
+  +band: U32,
+  acc: List<&2, F32>
 ) -> List<&2, F32>:
   match hop xs:
     case 0n _:
@@ -1152,7 +1080,11 @@ def col.b(
       col.b(p, tl, band, f.nth(blk, band) <> acc)
 
 def band.step(
-  hop: Nat, +vec: List<&2, F32>, got: Bf, +kk: U32, acc: List<&2, F32>
+  hop: Nat,
+  +vec: List<&2, F32>,
+  got: Bf,
+  +kk: U32,
+  acc: List<&2, F32>
 ) -> Array<F32> & List<&2, F32>:
   match hop got:
     case 0n Bf{tab, co}:
@@ -1162,7 +1094,11 @@ def band.step(
         (co <> acc))
 
 def band.k(
-  hop: Nat, +vec: List<&2, F32>, tab: Array<F32>, +kk: U32, acc: List<&2, F32>
+  hop: Nat,
+  +vec: List<&2, F32>,
+  tab: Array<F32>,
+  +kk: U32,
+  acc: List<&2, F32>
 ) -> Array<F32> & List<&2, F32>:
   match hop:
     case 0n:
@@ -1171,7 +1107,10 @@ def band.k(
       band.step(p, vec, bf.of(bt.dot(vec, tab, (kk * 36 : U32), 0.0)), kk, acc)
 
 def band.row(
-  +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, tab: Array<F32>, +band: U32
+  +aa: List<&2, List<&2, F32>>,
+  +cc: List<&2, List<&2, F32>>,
+  tab: Array<F32>,
+  +band: U32
 ) -> Array<F32> & List<&2, F32>:
   band.k(18n, List.append(&2, F32, col.b(18n, aa, band, []), col.b(18n, cc, band, [])), tab, 0, [])
 
@@ -1191,7 +1130,11 @@ def br.of(got: Array<F32> & List<&2, F32>) -> Br:
   Br{tab, row}
 
 def spec.step(
-  hop: Nat, +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, got: Br, +band: U32,
+  hop: Nat,
+  +aa: List<&2, List<&2, F32>>,
+  +cc: List<&2, List<&2, F32>>,
+  got: Br,
+  +band: U32,
   acc: List<&2, List<&2, F32>>
 ) -> Array<F32> & List<&2, F32>:
   match hop got:
@@ -1202,8 +1145,12 @@ def spec.step(
         (row <> acc))
 
 def spec.bands(
-  hop: Nat, +aa: List<&2, List<&2, F32>>, +cc: List<&2, List<&2, F32>>, tab: Array<F32>,
-  +band: U32, acc: List<&2, List<&2, F32>>
+  hop: Nat,
+  +aa: List<&2, List<&2, F32>>,
+  +cc: List<&2, List<&2, F32>>,
+  tab: Array<F32>,
+  +band: U32,
+  acc: List<&2, List<&2, F32>>
 ) -> Array<F32> & List<&2, F32>:
   match hop:
     case 0n:
@@ -1221,7 +1168,9 @@ def drop.b(hop: Nat, xs: List<&2, List<&2, F32>>) -> List<&2, List<&2, F32>>:
       drop.b(p, tl)
 
 def take.b(
-  hop: Nat, xs: List<&2, List<&2, F32>>, acc: List<&2, List<&2, F32>>
+  hop: Nat,
+  xs: List<&2, List<&2, F32>>,
+  acc: List<&2, List<&2, F32>>
 ) -> List<&2, List<&2, F32>>:
   match hop xs:
     case 0n _:
@@ -1264,7 +1213,13 @@ def al.list(acc: Array<F32>) -> List<&2, F32>:
   al.pull(575n, sa.of(Array.get(F32, acc, 0)), 0, [])
 
 def al.write(
-  acc: Array<F32>, +up: F32, +dp: F32, +c0: F32, +c1: F32, +hi: U32, +lo: U32
+  acc: Array<F32>,
+  +up: F32,
+  +dp: F32,
+  +c0: F32,
+  +c1: F32,
+  +hi: U32,
+  +lo: U32
 ) -> Array<F32>:
   Array.set(F32, Array.set(F32, acc, hi, ((c0 * up : F32) + (c1 * dp : F32) : F32)), lo,
     ((F32.neg(c1) * up : F32) + (c0 * dp : F32) : F32))
@@ -1316,7 +1271,10 @@ def spec.gran(+blocks: List<&2, List<&2, F32>>, tab: Array<F32>) -> Array<F32> &
   spec.read(br.of(spec.one(blocks, tab)))
 
 def grans.step(
-  hop: Nat, +blocks: List<&2, List<&2, F32>>, got: Br, acc: List<&2, List<&2, F32>>
+  hop: Nat,
+  +blocks: List<&2, List<&2, F32>>,
+  got: Br,
+  acc: List<&2, List<&2, F32>>
 ) -> Array<F32> & List<&2, List<&2, F32>>:
   match hop got:
     case 0n Br{tab, row}:
@@ -1325,7 +1283,10 @@ def grans.step(
       grans.step(p, drop.b(18n, blocks), br.of(spec.gran(blocks, tab)), (row <> acc))
 
 def grans.go(
-  hop: Nat, +blocks: List<&2, List<&2, F32>>, tab: Array<F32>, acc: List<&2, List<&2, F32>>
+  hop: Nat,
+  +blocks: List<&2, List<&2, F32>>,
+  tab: Array<F32>,
+  acc: List<&2, List<&2, F32>>
 ) -> Array<F32> & List<&2, List<&2, F32>>:
   match hop:
     case 0n:

@@ -16,18 +16,31 @@ law mp3_reads_sat:
   for +ww: U32
   {Enc.samp.of(3, ww) == Enc.f32.bits(Enc.samp.sat(ww)) : F32}
 
-# LAW: NaN reads as 0
+# LAW: a word whose magnitude bits are at most 1.0's is kept
+law mp3_kept:
+  for +ww: U32
+  for h_ok: {U32.is_le((ww .&. 2147483647 : U32), 1065353216) == True{} : Bool}
+  {Enc.samp.sat(ww) == ww : U32}
+
+# LAW: a NaN, its magnitude bits past infinity's (7F800000), reads as 0
 law mp3_nan:
-  {Enc.samp.sat(2143289344) == 0 : U32}
+  for +ww: U32
+  for h_big: {U32.is_le((ww .&. 2147483647 : U32), 1065353216) == False{} : Bool}
+  for h_nan: {U32.is_lt(2139095040, (ww .&. 2147483647 : U32)) == True{} : Bool}
+  {Enc.samp.sat(ww) == 0 : U32}
 
-# LAW: negative infinity reads as -1
-law mp3_neg_inf:
-  {Enc.samp.sat(4286578688) == 3212836864 : U32}
+# LAW: a negative infinity or magnitude past 1 reads as -1
+law mp3_neg_big:
+  for +ww: U32
+  for h_big: {U32.is_le((ww .&. 2147483647 : U32), 1065353216) == False{} : Bool}
+  for h_nan: {U32.is_lt(2139095040, (ww .&. 2147483647 : U32)) == False{} : Bool}
+  for h_neg: {U32.is_ne((ww .&. 2147483648 : U32), 0) == True{} : Bool}
+  {Enc.samp.sat(ww) == 3212836864 : U32}
 
-# LAW: 64.0 reads as 1
-law mp3_loud:
-  {Enc.samp.sat(1115684864) == 1065353216 : U32}
-
-# LAW: 0.5 is kept
-law mp3_half:
-  {Enc.samp.sat(1056964608) == 1056964608 : U32}
+# LAW: a positive infinity or magnitude past 1 reads as 1
+law mp3_pos_big:
+  for +ww: U32
+  for h_big: {U32.is_le((ww .&. 2147483647 : U32), 1065353216) == False{} : Bool}
+  for h_nan: {U32.is_lt(2139095040, (ww .&. 2147483647 : U32)) == False{} : Bool}
+  for h_neg: {U32.is_ne((ww .&. 2147483648 : U32), 0) == False{} : Bool}
+  {Enc.samp.sat(ww) == 1065353216 : U32}

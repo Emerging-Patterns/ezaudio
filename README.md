@@ -50,12 +50,16 @@ def main() -> U32:
 
 [LAWS.bend](LAWS.bend) lists what ezaudio guarantees: one file under
 [laws/](laws/) each, proved by the file of the same name under
-[proofs/](proofs/) (`bend PROOF.bend`). Most laws are closed equalities on
-one fixture; the ones below that say "for every" are quantified over their
-inputs. They target:
+[proofs/](proofs/) (`bend PROOF.bend`). Every law holds for every input
+its binders range over: the statements below that say "for every" are
+laws. The rest describes behaviour on particular files, which no law
+proves: [tests/fixtures.bend](tests/fixtures.bend) checks it byte for byte
+and the bench's wave check compares it with ffmpeg and Python's `wave`,
+both under `nix flake check`. They target:
 
-- The IBM/Microsoft RIFF WAVE form: the `RIFF`, `WAVE`, `fmt `, and `data`
-  identifiers. A mono signed-16 clip at 8000 Hz encodes as PCM (format tag 1),
+- The IBM/Microsoft RIFF WAVE form: every file `encode_wav` writes, for
+  every clip, has the `RIFF`, `WAVE` and `fmt ` identifiers, and a `data`
+  chunk. A mono signed-16 clip at 8000 Hz encodes as PCM (format tag 1),
   one channel, 16 bits, little-endian samples, and decodes back to that clip.
   Binary32 encodes as format tag 3 with an 18-byte fmt chunk and a fact chunk.
   Stereo signed-16, the widest s16 samples, a clip of no frames, and mono and
@@ -63,15 +67,16 @@ inputs. They target:
   1.0. Every clip `decode_wav` returns, for every input, has one or two
   channels and whole frames. A clip whose samples are not whole frames does
   not encode, for every clip; nor does a zero sample rate, an s16 sample of
-  2^16 or more, or a byte rate that does not fit a U32. A byte list that is
-  not RIFF decodes as none.
+  2^16 or more, or a byte rate or size that does not fit a U32. A byte list
+  that does not start with `RIFF` decodes as none, for every byte list.
 - `decode_wav` reads files the way libsndfile, dr_wav, ffmpeg and Python's
   `wave` do: it stops at the data chunk, so any bytes after it change
-  nothing (for every such tail); a truncated or streamed data chunk
-  (size 0xFFFFFFFF) reads the bytes that are there, cut to whole frames;
-  chunks it does not know are skipped, before and after fmt;
+  nothing; chunks it does not know are skipped, before and after fmt;
   WAVE_FORMAT_EXTENSIBLE is read through its sub-format; the byte rate and
-  block align are not checked. Data before fmt is none.
+  block align are not checked; a data chunk that ends in part of a frame
+  keeps its whole frames; data before fmt is none: each for every tail after
+  the file. A truncated or streamed data chunk (size 0xFFFFFFFF) reads the
+  bytes that are there, cut to whole frames.
 - `fill` makes `n * channels` samples and `trim` checks its span as natural
   numbers, for every count, so neither wraps a U32: a span past the end is
   none, and one that fits keeps exactly `n * channels` samples. `concat`
@@ -79,7 +84,7 @@ inputs. They target:
   differ.
 - [ISO/IEC 11172-3](https://www.iso.org/standard/22412.html) MPEG-1 Layer III:
   the header `FF FB 90 C0` is Layer III, MPEG-1, 128 kbit/s, 44100 Hz, single
-  channel. Layer I and Layer II decode as none, as do mid/side joint stereo
+  channel, each field read from its own bits for every value of the others. Layer I and Layer II decode as none, as do mid/side joint stereo
   and a header with no frame behind it. A silent frame at 320 kbit/s is the
   header and then zeros for the rest of `1152 * 320 * 125 / hz` bytes:
   `FF FB E0 C4` and 1044 bytes at 44100 Hz mono, `FF FB E0 04` and 1044 bytes
@@ -95,11 +100,12 @@ inputs. They target:
   stereo), is as long as that header says, and nothing follows the last. At
   44100 Hz a frame sets the pad bit (`E2`, 1045 bytes) when the remainders
   of `144 * 320000 / 44100` add up to a byte, 44 of every 49 frames as in
-  LAME, so the stream is exactly 320 kbit/s. Every granule, for every
+  LAME, for every stream length, so the stream is exactly 320 kbit/s. Every granule, for every
   spectrum, has a part2_3_length that is the length of its Huffman bits and
   at most its budget, which is at most 4095 bits, and those bits are its
-  first big_values pairs. Binary32 samples are clamped to [-1, 1] and NaN
-  reads as 0, for every word. Silence is the header and zeros: one zero
+  first big_values pairs. Binary32 samples are clamped to [-1, 1], NaN
+  reads as 0, and an infinity or a magnitude past 1 reads as 1 with its
+  sign, for every word. Silence is the header and zeros: one zero
   sample is `FF FB E0 C4` and 1044 bytes, then `FF FB E2 C4` and 1045 bytes,
   at 44100 Hz mono; binary32 zeros of either sign encode the same way.
 

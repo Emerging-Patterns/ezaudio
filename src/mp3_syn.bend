@@ -145,26 +145,20 @@ def ls.poke(hop: Nat, dst: List<&2, F32>, src: List<&2, F32>, +at: U32) -> List<
     case 1n+p +hd <> tl:
       ls.poke(p, f.set(dst, at, hd), tl, u.add(at, 1))
 
-# nine samples, index 0 first
-def cs.pack(
-  +v0: F32, +v1: F32, +v2: F32, +v3: F32, +v4: F32, +v5: F32, +v6: F32, +v7: F32, +v8: F32
-) -> List<&2, F32>:
-  v0 <> (v1 <> (v2 <> (v3 <> (v4 <> (v5 <> (v6 <> (v7 <> (v8 <> []))))))))
-
 # cosine half of one IMDCT-36 band
 def cs.co(+gg: List<&2, F32>) -> List<&2, F32>:
-  cs.pack(F32.neg(f.at(gg, 0)), f.add(f.at(gg, 1), f.at(gg, 2)),
+  [F32.neg(f.at(gg, 0)), f.add(f.at(gg, 1), f.at(gg, 2)),
     F32.neg(f.add(f.at(gg, 3), f.at(gg, 4))), f.add(f.at(gg, 5), f.at(gg, 6)),
     F32.neg(f.add(f.at(gg, 7), f.at(gg, 8))), f.add(f.at(gg, 9), f.at(gg, 10)),
     F32.neg(f.add(f.at(gg, 11), f.at(gg, 12))), f.add(f.at(gg, 13), f.at(gg, 14)),
-    F32.neg(f.add(f.at(gg, 15), f.at(gg, 16))))
+    F32.neg(f.add(f.at(gg, 15), f.at(gg, 16)))]
 
 # sine half of one IMDCT-36 band
 def cs.si(+gg: List<&2, F32>) -> List<&2, F32>:
-  cs.pack(f.at(gg, 17), f.sub(f.at(gg, 16), f.at(gg, 15)), f.sub(f.at(gg, 13), f.at(gg, 14)),
+  [f.at(gg, 17), f.sub(f.at(gg, 16), f.at(gg, 15)), f.sub(f.at(gg, 13), f.at(gg, 14)),
     f.sub(f.at(gg, 12), f.at(gg, 11)), f.sub(f.at(gg, 9), f.at(gg, 10)),
     f.sub(f.at(gg, 8), f.at(gg, 7)), f.sub(f.at(gg, 5), f.at(gg, 6)),
-    f.sub(f.at(gg, 4), f.at(gg, 3)), f.sub(f.at(gg, 1), f.at(gg, 2)))
+    f.sub(f.at(gg, 4), f.at(gg, 3)), f.sub(f.at(gg, 1), f.at(gg, 2))]
 
 # even-part sum used by the 9-point DCT
 def d9.t0(+y0: F32, +y6: F32) -> F32:
@@ -248,32 +242,38 @@ type D9 is Data:
     s2b: F32, y4o: F32, s8c: F32, s0c: F32, s4c: F32, s1b: F32, s5c: F32, s7c: F32, s3c: F32
   }
 
-# assemble the nine DCT outputs from the even and odd parts
-def d9.from(
-  +t0: F32, +s0: F32, +t4: F32, +t2: F32, +s6: F32, +s4: F32, +s3: F32, +u0: F32, +u4: F32,
-  +u2: F32, +s1: F32
-) -> D9:
-  D9{d9.s2(s0, s4), d9.y4(s4, s0), d9.s8c(t0, t2, s6), d9.s0c(t0, t4, t2), d9.s4c(t0, t4, s6), s1,
-    d9.s5c(u0, s3, u2), d9.s7c(u4, s3, u0), d9.s3c(u4, s3, u2)}
+# the even part of the 9-point DCT, from bins 0, 2, 4, 6 and 8
+type D9e is Data:
+  D9e{t0: F32, s0: F32, t4: F32, t2: F32, s6: F32, s4: F32}
 
-# 9-point DCT of one half
-def d9.build(
-  +y0: F32, +y1: F32, +y2: F32, +y3: F32, +y4: F32, +y5: F32, +y6: F32, +y7: F32, +y8: F32
-) -> D9:
-  d9.from(d9.t0(y0, y6), d9.s0(y0, y6), d9.t4(y4, y2), d9.t2(y8, y2), d9.s6(y4, y8),
-    d9.s4(y4, y8, y2), d9.s3(y3), d9.tb0(y5, y1), d9.tb4(y5, y7), d9.tb2(y1, y7), d9.s1(y1, y5, y7))
+# the odd part of the 9-point DCT, from bins 1, 3, 5 and 7
+type D9o is Data:
+  D9o{s3: F32, u0: F32, u4: F32, u2: F32, s1: F32}
+
+def d9.even(+y0: F32, +y2: F32, +y4: F32, +y6: F32, +y8: F32) -> D9e:
+  D9e{d9.t0(y0, y6), d9.s0(y0, y6), d9.t4(y4, y2), d9.t2(y8, y2), d9.s6(y4, y8), d9.s4(y4, y8, y2)}
+
+def d9.odd(+y1: F32, +y3: F32, +y5: F32, +y7: F32) -> D9o:
+  D9o{d9.s3(y3), d9.tb0(y5, y1), d9.tb4(y5, y7), d9.tb2(y1, y7), d9.s1(y1, y5, y7)}
+
+# assemble the nine DCT outputs from the even and odd parts
+def d9.from(ev: D9e, od: D9o) -> D9:
+  match ev od:
+    case D9e{+t0, +s0, +t4, +t2, +s6, +s4} D9o{+s3, +u0, +u4, +u2, +s1}:
+      D9{d9.s2(s0, s4), d9.y4(s4, s0), d9.s8c(t0, t2, s6), d9.s0c(t0, t4, t2), d9.s4c(t0, t4, s6), s1,
+        d9.s5c(u0, s3, u2), d9.s7c(u4, s3, u0), d9.s3c(u4, s3, u2)}
 
 # nine DCT outputs in bin order
 def d9.list(dd: D9) -> List<&2, F32>:
   match dd:
     case D9{+s2b, +y4o, +s8c, +s0c, +s4c, +s1b, +s5c, +s7c, +s3c}:
-      cs.pack(f.sub(s4c, s7c), f.add(s2b, s1b), f.sub(s0c, s3c), f.add(s8c, s5c), y4o,
-        f.sub(s8c, s5c), f.add(s0c, s3c), f.sub(s2b, s1b), f.add(s4c, s7c))
+      [f.sub(s4c, s7c), f.add(s2b, s1b), f.sub(s0c, s3c), f.add(s8c, s5c), y4o,
+        f.sub(s8c, s5c), f.add(s0c, s3c), f.sub(s2b, s1b), f.add(s4c, s7c)]
 
 # 9-point DCT
 def d9.run(+ys: List<&2, F32>) -> List<&2, F32>:
-  d9.list(d9.build(f.at(ys, 0), f.at(ys, 1), f.at(ys, 2), f.at(ys, 3), f.at(ys, 4), f.at(ys, 5),
-    f.at(ys, 6), f.at(ys, 7), f.at(ys, 8)))
+  d9.list(d9.from(d9.even(f.at(ys, 0), f.at(ys, 2), f.at(ys, 4), f.at(ys, 6), f.at(ys, 8)),
+    d9.odd(f.at(ys, 1), f.at(ys, 3), f.at(ys, 5), f.at(ys, 7))))
 
 # negate the odd bins of a sine DCT
 def d9.neg(+ys: List<&2, F32>) -> List<&2, F32>:
@@ -303,15 +303,26 @@ def wn.put(st: Wn, +ov: List<&2, F32>, +win: List<&2, F32>, +ii: U32, ws: Ws) ->
 
 # one of the nine window steps
 def wn.one(
-  st: Wn, +co: List<&2, F32>, +si: List<&2, F32>, +ov: List<&2, F32>, +tw: List<&2, F32>,
-  +win: List<&2, F32>, +ii: U32
+  st: Wn,
+  +co: List<&2, F32>,
+  +si: List<&2, F32>,
+  +ov: List<&2, F32>,
+  +tw: List<&2, F32>,
+  +win: List<&2, F32>,
+  +ii: U32
 ) -> Wn:
   wn.put(st, ov, win, ii, wn.pair(co, si, tw, ii))
 
 # window all nine indices
 def wn.go(
-  hop: Nat, st: Wn, +co: List<&2, F32>, +si: List<&2, F32>, +ov: List<&2, F32>, +tw: List<&2, F32>,
-  +win: List<&2, F32>, +ii: U32
+  hop: Nat,
+  st: Wn,
+  +co: List<&2, F32>,
+  +si: List<&2, F32>,
+  +ov: List<&2, F32>,
+  +tw: List<&2, F32>,
+  +win: List<&2, F32>,
+  +ii: U32
 ) -> Wn:
   match hop:
     case 0n:
@@ -373,7 +384,12 @@ def im.store(buf: Array<F32>, +ov: List<&2, F32>, ww: Wn, +jj: U32, +base: U32) 
 
 # band samples in hand; window them and store
 def im.got(
-  got: Il, +ov: List<&2, F32>, +tw: List<&2, F32>, +win: List<&2, F32>, +jj: U32, +base: U32
+  got: Il,
+  +ov: List<&2, F32>,
+  +tw: List<&2, F32>,
+  +win: List<&2, F32>,
+  +jj: U32,
+  +base: U32
 ) -> Im:
   match got:
     case Il{buf, gg}:
@@ -423,7 +439,13 @@ def aa.rd(acc: Array<F32>, +hi: U32, +lo: U32) -> Ia:
 
 # butterfly of one aliasing pair. c0 and c1 are the two cosine rows.
 def aa.wr(
-  acc: Array<F32>, +up: F32, +dp: F32, +c0: F32, +c1: F32, +hi: U32, +lo: U32
+  acc: Array<F32>,
+  +up: F32,
+  +dp: F32,
+  +c0: F32,
+  +c1: F32,
+  +hi: U32,
+  +lo: U32
 ) -> Array<F32>:
   Array.set(F32, Array.set(F32, acc, hi, f.sub(f.mul(c0, up), f.mul(c1, dp))), lo,
     f.add(f.mul(c1, up), f.mul(c0, dp)))
@@ -575,7 +597,14 @@ type E8 is Data:
 
 # finish the first stage
 def but.sum2(
-  +xt: F32, +y0: F32, +y7: F32, +y1: F32, +y6: F32, +y2: F32, +y5: F32, +y3: F32
+  +xt: F32,
+  +y0: F32,
+  +y7: F32,
+  +y1: F32,
+  +y6: F32,
+  +y2: F32,
+  +y5: F32,
+  +y3: F32
 ) -> E8:
   E8{f.add(y0, y3), f.add(y1, y2), y6, f.sub(y1, y2), f.sub(y0, y3), y5, y7, xt}
 
@@ -593,13 +622,27 @@ def but.mid(ee: E8) -> E8:
 
 # last rotation update
 def but.rot3(
-  +o0: F32, +w3: F32, +w6: F32, +y4: F32, +o4: F32, +p5: F32, +p7: F32, +xt: F32
+  +o0: F32,
+  +w3: F32,
+  +w6: F32,
+  +y4: F32,
+  +o4: F32,
+  +p5: F32,
+  +p7: F32,
+  +xt: F32
 ) -> E8:
   E8{o0, p7, w3, y4, o4, f.sub(p5, f.mul(p7, c.c198())), f.sub(xt, w6), f.add(xt, w6)}
 
 # complete the rotation
 def but.rot2(
-  +o0: F32, +w3: F32, +w6: F32, +y4: F32, +o4: F32, +p5: F32, +w7: F32, +xt: F32
+  +o0: F32,
+  +w3: F32,
+  +w6: F32,
+  +y4: F32,
+  +o4: F32,
+  +p5: F32,
+  +w7: F32,
+  +xt: F32
 ) -> E8:
   but.rot3(o0, w3, w6, y4, o4, p5, f.add(w7, f.mul(p5, c.c382())), xt)
 
@@ -613,13 +656,13 @@ def but.rot(ee: E8) -> E8:
 def but.end(ee: E8) -> List<&2, F32>:
   match ee:
     case E8{+z0, +z1, +z2, +z3, +z4, +z5, +z6, +z7}:
-      cs.pack(z0, f.mul(f.add(z7, z1), c.c509()), f.mul(f.add(z3, z2), c.c541()),
+      [z0, f.mul(f.add(z7, z1), c.c509()), f.mul(f.add(z3, z2), c.c541()),
         f.mul(f.sub(z6, z5), c.c601()), z4, f.mul(f.add(z6, z5), c.c899()),
-        f.mul(f.sub(z3, z2), c.c130()), f.mul(f.sub(z7, z1), c.c256()), 0.0)
+        f.mul(f.sub(z3, z2), c.c130()), f.mul(f.sub(z7, z1), c.c256())]
 
-# cs.pack takes 9; the row is 8. Drop the padding below.
+# the eight row outputs, in order
 def but.out(ee: E8) -> List<&2, F32>:
-  ls.take(8n, but.end(ee), [])
+  but.end(ee)
 
 # butterfly the eight samples and write the row back
 def but.sum8(acc: Array<F32>, +ys: List<&2, F32>, +base: U32) -> Array<F32>:
@@ -700,7 +743,13 @@ type Sc is Type:
 
 # four band values from the seven column samples
 def sc.bands(
-  +p0: F32, +p1: F32, +p2: F32, +p3: F32, +p4: F32, +p5: F32, +p6: F32
+  +p0: F32,
+  +p1: F32,
+  +p2: F32,
+  +p3: F32,
+  +p4: F32,
+  +p5: F32,
+  +p6: F32
 ) -> Q4:
   Q4{p0, f.add(f.add(p3, p5), p6), f.add(p1, p2), f.add(f.add(p4, p5), p6)}
 
@@ -857,7 +906,12 @@ def mac.av(+mode: U32, +zv: F32, +yv: F32, +w0: F32, +w1: F32) -> F32:
 
 # apply one lane of a window load
 def mac.wr(
-  +aa: List<&2, F32>, +bb: List<&2, F32>, +mode: U32, +jj: U32, +bv: F32, +av: F32
+  +aa: List<&2, F32>,
+  +bb: List<&2, F32>,
+  +mode: U32,
+  +jj: U32,
+  +bv: F32,
+  +av: F32
 ) -> Mac:
   match mode:
     case 0:
@@ -867,7 +921,13 @@ def mac.wr(
 
 # one of the four lanes, y slot
 def mac.jy(
-  st: Mac, got: La, +w0: F32, +w1: F32, +mode: U32, +jj: U32, +zv: F32
+  st: Mac,
+  got: La,
+  +w0: F32,
+  +w1: F32,
+  +mode: U32,
+  +jj: U32,
+  +zv: F32
 ) -> Mk:
   match st got:
     case Mac{aa, bb} La{lin2, yv}:
@@ -875,7 +935,13 @@ def mac.jy(
 
 # one of the four lanes, z slot
 def mac.jz(
-  st: Mac, got: La, +w0: F32, +w1: F32, +vy: U32, +mode: U32, +jj: U32
+  st: Mac,
+  got: La,
+  +w0: F32,
+  +w1: F32,
+  +vy: U32,
+  +mode: U32,
+  +jj: U32
 ) -> Mk:
   match got:
     case La{lin1, zv}:
@@ -883,7 +949,14 @@ def mac.jz(
 
 # one of the four lanes
 def mac.j(
-  st: Mac, lin: Array<F32>, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj: U32
+  st: Mac,
+  lin: Array<F32>,
+  +w0: F32,
+  +w1: F32,
+  +vz: U32,
+  +vy: U32,
+  +mode: U32,
+  +jj: U32
 ) -> Mk:
   mac.jz(st, ln.at(lin, u.add(vz, jj)), w0, w1, vy, mode, jj)
 
@@ -895,7 +968,14 @@ def mac.js_next(mk: Mk, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj:
 
 # four lanes of one load
 def mac.js(
-  hop: Nat, mk: Mk, +w0: F32, +w1: F32, +vz: U32, +vy: U32, +mode: U32, +jj: U32
+  hop: Nat,
+  mk: Mk,
+  +w0: F32,
+  +w1: F32,
+  +vz: U32,
+  +vy: U32,
+  +mode: U32,
+  +jj: U32
 ) -> Mk:
   match hop:
     case 0n:
@@ -977,7 +1057,12 @@ def mac.sc(+vv: F32) -> F32:
 
 # write the eight samples this row produces
 def mac.p8(
-  pcm: Array<F32>, +aa: List<&2, F32>, +bb: List<&2, F32>, +nch: U32, +pcmi: U32, +ii: U32
+  pcm: Array<F32>,
+  +aa: List<&2, F32>,
+  +bb: List<&2, F32>,
+  +nch: U32,
+  +pcmi: U32,
+  +ii: U32
 ) -> Array<F32>:
   ln.set(ln.set(ln.set(ln.set(ln.set(ln.set(ln.set(ln.set(pcm,
     u.add(pcmi, u.add(u.mul(u.sub(15, ii), nch), u.sub(nch, 1))), mac.sc(f.at(aa, 1))),
@@ -1056,7 +1141,12 @@ def blk.w4a(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32) -
 
 # write the four samples at zlin + 4*slot
 def blk.w4(
-  lin: Array<F32>, gr: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+  lin: Array<F32>,
+  gr: Array<F32>,
+  +nch: U32,
+  +at: U32,
+  +band: U32,
+  +tm: U32
 ) -> Lg:
   blk.w4a(blk.rd(gr, nch, band, tm, False{}), lin, nch, at, band, tm)
 
@@ -1074,7 +1164,12 @@ def blk.w2a(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32) -
 
 # the second write of a row uses band (1+ii), not band 0
 def blk.w2(
-  lin: Array<F32>, gr: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+  lin: Array<F32>,
+  gr: Array<F32>,
+  +nch: U32,
+  +at: U32,
+  +band: U32,
+  +tm: U32
 ) -> Lg:
   blk.w2a(blk.rd(gr, nch, band, tm, False{}), lin, nch, at, band, tm)
 
@@ -1086,7 +1181,11 @@ def blk.pre2(got: Lg, +nch: U32, +zlin: U32, +tm: U32) -> Lg:
 
 # preamble: bands 16 and 0 at the current and next time
 def blk.pre(
-  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32
+  lin: Array<F32>,
+  gr: Array<F32>,
+  +nch: U32,
+  +zlin: U32,
+  +tm: U32
 ) -> Lg:
   blk.pre2(blk.w4(lin, gr, nch, u.add(zlin, 60), 16, tm), nch, zlin, tm)
 
@@ -1103,7 +1202,14 @@ def blk.wsd(g: Ga, lin: Array<F32>, +at: U32, +v0: F32, +v1: F32, +v2: F32) -> L
 
 # third lane: this band at the next time, left channel
 def blk.wsc(
-  g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32, +v0: F32, +v1: F32
+  g: Ga,
+  lin: Array<F32>,
+  +nch: U32,
+  +at: U32,
+  +band: U32,
+  +tm: U32,
+  +v0: F32,
+  +v1: F32
 ) -> Lg:
   match g:
     case Ga{gr, v2}:
@@ -1123,13 +1229,23 @@ def blk.wsa(g: Ga, lin: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32) -
 
 # same band at this time and the next, four lanes
 def blk.ws(
-  lin: Array<F32>, gr: Array<F32>, +nch: U32, +at: U32, +band: U32, +tm: U32
+  lin: Array<F32>,
+  gr: Array<F32>,
+  +nch: U32,
+  +at: U32,
+  +band: U32,
+  +tm: U32
 ) -> Lg:
   blk.wsa(blk.rd(gr, nch, band, tm, False{}), lin, nch, at, band, tm)
 
 # current-slot writes for row ii
 def blk.i1(
-  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+  lin: Array<F32>,
+  gr: Array<F32>,
+  +nch: U32,
+  +zlin: U32,
+  +tm: U32,
+  +ii: U32
 ) -> Lg:
   blk.ws(lin, gr, nch, u.add(zlin, u.mul(ii, 4)), u.sub(31, ii), tm)
 
@@ -1141,7 +1257,12 @@ def blk.i2b(got: Lg, +nch: U32, +zlin: U32, +tm: U32, +ii: U32) -> Lg:
 
 # next-slot and history writes for row ii
 def blk.i2(
-  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+  lin: Array<F32>,
+  gr: Array<F32>,
+  +nch: U32,
+  +zlin: U32,
+  +tm: U32,
+  +ii: U32
 ) -> Lg:
   blk.i2b(blk.w2(lin, gr, nch, u.add(u.add(zlin, u.mul(ii, 4)), 64), u.add(1, ii), u.add(tm, 1)), nch,
     zlin, tm, ii)
@@ -1154,7 +1275,12 @@ def blk.ib(got: Lg, +nch: U32, +zlin: U32, +tm: U32, +ii: U32) -> Lg:
 
 # both writes for row ii
 def blk.i(
-  lin: Array<F32>, gr: Array<F32>, +nch: U32, +zlin: U32, +tm: U32, +ii: U32
+  lin: Array<F32>,
+  gr: Array<F32>,
+  +nch: U32,
+  +zlin: U32,
+  +tm: U32,
+  +ii: U32
 ) -> Lg:
   blk.ib(blk.i1(lin, gr, nch, zlin, tm, ii), nch, zlin, tm, ii)
 
@@ -1449,13 +1575,23 @@ def blk.row3(got: Sr, gr: Array<F32>) -> Bg:
 
 # window the row just written
 def blk.row(
-  lin: Array<F32>, pcm: Array<F32>, syn: Array<F32>, +nch: U32, +tm: U32, +ii: U32
+  lin: Array<F32>,
+  pcm: Array<F32>,
+  syn: Array<F32>,
+  +nch: U32,
+  +tm: U32,
+  +ii: U32
 ) -> Sr:
   blk.row1(mac.k(8n, Mw{Mk{mac.z(), lin}, syn}, u.add(u.mul(tm, 64), 960), ii, 0), pcm, nch, tm, ii)
 
 # window the row, keeping the granule for the rows still to come
 def blk.step2(
-  got: Lg, pcm: Array<F32>, syn: Array<F32>, +nch: U32, +tm: U32, +ii: U32
+  got: Lg,
+  pcm: Array<F32>,
+  syn: Array<F32>,
+  +nch: U32,
+  +tm: U32,
+  +ii: U32
 ) -> Bg:
   match got:
     case Lg{lin, gr}:
@@ -1536,7 +1672,11 @@ def syn.zqmf() -> List<&2, F32>:
 
 # antialias, IMDCT, and the sign flip for one channel
 def ch.prep(
-  acc: Array<F32>, +ov: List<&2, F32>, +aa: List<&2, F32>, +tw: List<&2, F32>, +win: List<&2, F32>,
+  acc: Array<F32>,
+  +ov: List<&2, F32>,
+  +aa: List<&2, F32>,
+  +tw: List<&2, F32>,
+  +win: List<&2, F32>,
   +base: U32
 ) -> Im:
   im.sign(im.go(32n, Im{aa.run(acc, aa, base), ov}, tw, win, 0, base), base)
@@ -1549,7 +1689,11 @@ def syn.st2(+ova: List<&2, F32>, bb: Im) -> Im:
 
 # join two channel states. The right channel starts at bin 576.
 def syn.st(
-  aa: Im, +ovb: List<&2, F32>, +cs: List<&2, F32>, +tw: List<&2, F32>, +win: List<&2, F32>
+  aa: Im,
+  +ovb: List<&2, F32>,
+  +cs: List<&2, F32>,
+  +tw: List<&2, F32>,
+  +win: List<&2, F32>
 ) -> Im:
   match aa:
     case Im{buf, ova}:
@@ -1557,7 +1701,11 @@ def syn.st(
 
 # prepare one or two channels
 def syn.ch(
-  mono: Bool, acc: Array<F32>, +ov: List<&2, F32>, +aa: List<&2, F32>, +tw: List<&2, F32>,
+  mono: Bool,
+  acc: Array<F32>,
+  +ov: List<&2, F32>,
+  +aa: List<&2, F32>,
+  +tw: List<&2, F32>,
   +win: List<&2, F32>
 ) -> Im:
   match mono:

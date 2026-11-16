@@ -227,17 +227,71 @@ def Laws.mp3_pads_32(nn):
       Equal.cong(List<&2, Bool>, List<&2, Bool>, xs => False{} <> xs, Mp3.enc.pads(pp, 32000, 0),
         List.replicate(Bool, pp, False{}), Laws.mp3_pads_32(pp))
 
-def Laws.mp3_pads_44():
-  {==}
+# hop + more frames pad as hop frames, then more from the remainder hop leaves
+def pads.split(
+  hop: Nat,
+  +more: Nat,
+  +hz: U32,
+  +slot: U32
+) -> {Mp3.enc.pads(Nat.add(hop, more), hz, slot)
+  == List.append(&2, Bool, Mp3.enc.pads(hop, hz, slot), Mp3.enc.pads(more, hz, D1.slot.after(hop, hz, slot)))
+  : List<&2, Bool>}:
+  match hop:
+    case 0n:
+      {==}
+    case 1n+pp:
+      Equal.cong(List<&2, Bool>, List<&2, Bool>, xs => Mp3.enc.padb(hz, slot) <> xs,
+        Mp3.enc.pads(Nat.add(pp, more), hz, Mp3.enc.next(Mp3.enc.padb(hz, slot), hz, slot)),
+        List.append(&2, Bool, Mp3.enc.pads(pp, hz, Mp3.enc.next(Mp3.enc.padb(hz, slot), hz, slot)),
+          Mp3.enc.pads(more, hz, D1.slot.after(pp, hz, Mp3.enc.next(Mp3.enc.padb(hz, slot), hz, slot)))),
+        pads.split(pp, more, hz, Mp3.enc.next(Mp3.enc.padb(hz, slot), hz, slot)))
 
-def Laws.mp3_hdr_44_1():
-  {==}
+# the padded frames of two runs add up
+def count.cat(
+  xs: List<&2, Bool>,
+  +ys: List<&2, Bool>
+) -> {D1.pads.count(List.append(&2, Bool, xs, ys)) == Nat.add(D1.pads.count(xs), D1.pads.count(ys)) : Nat}:
+  match xs:
+    case Nil{}:
+      {==}
+    case True{} <> tl:
+      Equal.cong(Nat, Nat, kk => 1n+kk, D1.pads.count(List.append(&2, Bool, tl, ys)),
+        Nat.add(D1.pads.count(tl), D1.pads.count(ys)), count.cat(tl, ys))
+    case False{} <> tl:
+      count.cat(tl, ys)
 
-def Laws.mp3_hdr_44_2():
-  {==}
+def Laws.mp3_pads_44(nn):
+  Equal.trans(Nat, D1.pads.count(Mp3.enc.pads(Nat.add(49n, nn), 44100, 0)),
+    D1.pads.count(List.append(&2, Bool, Mp3.enc.pads(49n, 44100, 0), Mp3.enc.pads(nn, 44100, 0))),
+    Nat.add(44n, D1.pads.count(Mp3.enc.pads(nn, 44100, 0))),
+    Equal.cong(List<&2, Bool>, Nat, xs => D1.pads.count(xs), Mp3.enc.pads(Nat.add(49n, nn), 44100, 0),
+      List.append(&2, Bool, Mp3.enc.pads(49n, 44100, 0), Mp3.enc.pads(nn, 44100, 0)), pads.split(49n, nn, 44100, 0)),
+    count.cat(Mp3.enc.pads(49n, 44100, 0), Mp3.enc.pads(nn, 44100, 0)))
 
-def Laws.mp3_hdr_48():
-  {==}
+def Laws.mp3_hdr_44_1(pd):
+  match pd:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
 
-def Laws.mp3_hdr_32():
-  {==}
+def Laws.mp3_hdr_44_2(pd):
+  match pd:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def Laws.mp3_hdr_48(pd):
+  match pd:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def Laws.mp3_hdr_32(pd):
+  match pd:
+    case True{}:
+      {==}
+    case False{}:
+      {==}

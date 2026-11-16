@@ -25,6 +25,11 @@ def whole.some(
       Equal.sym(Maybe<&2, Au.Clip>, mm, Some{clip}, h_eq)),
     h_ok)
 
+# the check mp3.kept makes: one or two channels, whole 1152-sample granules
+def whole.ok(+nch: U32, +pcm: List<&2, U32>) -> Bool:
+  Bool.and(Bool.or(U32.is_eq(nch, 1), U32.is_eq(nch, 2)),
+    Nat.is_eq(Nat.mod(List.length(&2, U32, pcm), U32.to_nat((1152 * nch : U32))), 0n))
+
 # a kept clip passed the check, which is whole
 def keep.whole(
   ok: Bool,
@@ -32,8 +37,7 @@ def keep.whole(
   +nch: U32,
   fmt: Au.Format,
   +pcm: List<&2, U32>,
-  eo: {Bool.and(Bool.or(U32.is_eq(nch, 1), U32.is_eq(nch, 2)),
-    Nat.is_eq(Nat.mod(List.length(&2, U32, pcm), U32.to_nat((1152 * nch : U32))), 0n)) == ok : Bool}
+  eo: {whole.ok(nch, pcm) == ok : Bool}
 ) -> {whole.of(Au.mp3.keep(ok, Au.Clip{hz, nch, fmt, pcm})) == True{} : Bool}:
   match ok:
     case False{}:

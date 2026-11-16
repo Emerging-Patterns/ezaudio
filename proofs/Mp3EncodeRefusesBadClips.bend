@@ -7,12 +7,3 @@ import ./lemmas/Mp3Encode.bend as M2
 
 def Laws.mp3_encodes_iff(hz, nch, fmt, pcm):
   M2.pick_is(Mp3.enc.fit(hz, nch), hz, nch, Au.kind.of(fmt), pcm)
-
-def Laws.mp3_empty():
-  {==}
-
-def Laws.mp3_rate():
-  {==}
-
-def Laws.mp3_three():
-  {==}

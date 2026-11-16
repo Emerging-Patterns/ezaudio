@@ -211,22 +211,22 @@ type Gd is Data:
     pre: U32, scale: U32, c1: U32, block: U32
   }
 
+# the side info's last three bits (preflag, scalefac_scale, count1 table) close a long granule;
+# tabs packs the three 5-bit table selects
 def side.tail(
   +part: U32,
   +big: U32,
   +gain: U32,
   +comp: U32,
-  +t0: U32,
-  +t1: U32,
-  +t2: U32,
+  +tabs: U32,
   +r0: U32,
   +r1: U32,
   tail: Tk
 ) -> Gd & List<&2, U32>:
   match tail:
     case Tk{+v, xs}:
-      (Gd{part, big, gain, comp, t0, t1, t2, r0, r1, (v >> 2n : U32), ((v >> 1n : U32) .&. 1 : U32),
-        (v .&. 1 : U32), 0}, xs)
+      (Gd{part, big, gain, comp, (tabs >> 10n : U32), ((tabs >> 5n : U32) .&. 31 : U32), (tabs .&. 31 : U32),
+        r0, r1, (v >> 2n : U32), ((v >> 1n : U32) .&. 1 : U32), (v .&. 1 : U32), 0}, xs)
 
 def side.r1(
   +part: U32,
@@ -237,8 +237,7 @@ def side.r1(
   +r0: U32,
   +r1: Tk
 ) -> Gd & List<&2, U32>:
-  side.tail(part, big, gain, comp, (tabs >> 10n : U32), ((tabs >> 5n : U32) .&. 31 : U32),
-    (tabs .&. 31 : U32), r0, rd.u(r1), rd.n(rd.xs(r1), 3))
+  side.tail(part, big, gain, comp, tabs, r0, rd.u(r1), rd.n(rd.xs(r1), 3))
 
 def side.r0(
   +part: U32,
@@ -407,17 +406,15 @@ def hf.down(+leaf: U32, +bits: List<&2, U32>, +used: U32, +base: U32, +huff: Tb)
     (leaf .&. 7 : U32), bits, used)
 
 def hf.go(hop: Nat, st: Nd, +base: U32, +huff: Tb) -> Nd:
-  match hop:
-    case 0n:
-      st
-    case 1n+p:
-      match st:
-        case Nd{more, +leaf, +w, bits, +used}:
-          match more:
-            case False{}:
-              Nd{False{}, leaf, w, bits, used}
-            case True{}:
-              hf.go(p, hf.down(leaf, side.skip(bits, w), (used + w : U32), base, huff), base, huff)
+  match hop st:
+    case 0n Nd{more, +leaf, +w, bits, +used}:
+      Nd{more, leaf, w, bits, used}
+    case 1n+p Nd{more, +leaf, +w, bits, +used}:
+      match more:
+        case False{}:
+          Nd{False{}, leaf, w, bits, used}
+        case True{}:
+          hf.go(p, hf.down(leaf, side.skip(bits, w), (used + w : U32), base, huff), base, huff)
 
 # one line read: its signed value as a U32, the bits after it, the bits used
 type Vr is Data:
@@ -656,17 +653,15 @@ def c1.step(+got: Qd, bits: List<&2, U32>, +used: U32, +at: U32, acc: List<&2, U
   c1.keep(U32.is_lt(part, c1.used(got)), got, bits, used, at, acc, part)
 
 def c1.go(hop: Nat, st: Bv, +part: U32, +tab: List<&2, U32>) -> Bv:
-  match hop:
-    case 0n:
-      st
-    case 1n+p:
-      match st:
-        case Bv{more, +bits, +used, +at, acc}:
-          match more:
-            case False{}:
-              Bv{False{}, bits, used, at, acc}
-            case True{}:
-              c1.go(p, c1.step(qd.read(bits, used, tab), bits, used, at, acc, part), part, tab)
+  match hop st:
+    case 0n Bv{more, +bits, +used, +at, acc}:
+      Bv{more, bits, used, at, acc}
+    case 1n+p Bv{more, +bits, +used, +at, acc}:
+      match more:
+        case False{}:
+          Bv{False{}, bits, used, at, acc}
+        case True{}:
+          c1.go(p, c1.step(qd.read(bits, used, tab), bits, used, at, acc, part), part, tab)
 
 # a granule channel's quantized lines and its global_gain
 type Gl is Data:

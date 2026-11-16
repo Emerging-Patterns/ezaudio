@@ -1,11 +1,11 @@
-# small MPEG-1 Layer III frames for the decode laws, made by hand: 32 kbit/s,
+# small MPEG-1 Layer III frames for the decode fixtures, made by hand: 32 kbit/s,
 # 48000 Hz, mono, so a frame is 96 bytes: the header, 17 bytes of side info,
 # 75 bytes of main data. Granule 0 holds two big-value pairs from Huffman
 # table 1, then count1 quadruples from table A, the last of which runs past
 # part2_3_length; granule 1 holds one pair from table 16 (linbits 1) and one
 # count1 quadruple from table B. No byte after the header is 0xFF.
 import Base
-import ../../main.bend as Au
+import ../main.bend as Au
 
 # the bytes, then zeros out to n bytes
 def fx.pad(+xs: List<&2, U32>, +n: U32) -> List<&2, U32>:

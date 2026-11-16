@@ -4,18 +4,6 @@ import ../main.bend as Au
 import ../laws/TrimKeepsFrameSpan.bend as Laws
 import ./lemmas/NatAndLists.bend as M1
 
-def Laws.trim_span():
-  {==}
-
-def Laws.trim_all():
-  {==}
-
-def Laws.trim_past():
-  {==}
-
-def Laws.trim_stereo():
-  {==}
-
 def Laws.trim_past_end(hz, nch, fmt, pcm, start, nframes, h_past):
   Equal.cong(Bool, Maybe<&2, Au.Clip>,
     ok => Au.trim.go(Bool.and(ok, Bool.or(Nat.is_ne(U32.to_nat(nch), 0n),
