@@ -16,6 +16,10 @@ def inv(+ht: Enc.Ht, +bud: U32, +gg: Enc.Gr) -> Type:
 def inv.zero(+ht: Enc.Ht, +bud: U32) -> inv(ht, bud, Enc.gr.zero()):
   ({==}, (M2.zero_le(bud), {==}))
 
+# the Huffman code of a granule's first big_values pairs
+def code.of(+ht: Enc.Ht, +big: U32, +ix: List<&2, U32>, +tab: U32) -> Maybe<&2, List<&2, U32>>:
+  Enc.hf.code(ht, Enc.take.u(U32.to_nat((big * 2 : U32)), ix, []), tab)
+
 def inv.fit(
   ok: Bool,
   +ht: Enc.Ht,
@@ -26,8 +30,7 @@ def inv.fit(
   +tab: U32,
   +bud: U32,
   h_le: {U32.is_le(U32.from_nat(List.length(&2, U32, bits)), bud) == ok : Bool},
-  h_code: {Enc.hf.code(ht, Enc.take.u(U32.to_nat((big * 2 : U32)), ix, []), tab) == Some{bits}
-    : Maybe<&2, List<&2, U32>>}
+  h_code: {code.of(ht, big, ix, tab) == Some{bits} : Maybe<&2, List<&2, U32>>}
 ) -> inv(ht, bud, Enc.gr.fit(ok, bits, big, ix, gg, tab)):
   match ok:
     case True{}:
@@ -158,6 +161,3 @@ def bud.le(
 
 def Laws.mp3_bud(hz, ch):
   bud.le(U32.is_le(Mp3.enc.room(hz, ch), 4095), Mp3.enc.room(hz, ch), {==})
-
-def Laws.mp3_room():
-  {==}

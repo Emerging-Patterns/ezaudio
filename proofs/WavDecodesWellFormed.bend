@@ -25,6 +25,11 @@ def wf.some(
       Equal.sym(Maybe<&2, Au.Clip>, mm, Some{clip}, h_eq)),
     h_ok)
 
+# the check wav.kept makes: one or two channels, whole frames
+def wf.ok(+nch: U32, +pcm: List<&2, U32>) -> Bool:
+  Bool.and(Bool.or(U32.is_eq(nch, 1), U32.is_eq(nch, 2)),
+    Nat.is_eq(Nat.mod(List.length(&2, U32, pcm), U32.to_nat(nch)), 0n))
+
 # a kept clip passed the check, which is wf
 def keep.wf(
   ok: Bool,
@@ -32,8 +37,7 @@ def keep.wf(
   +nch: U32,
   fmt: Au.Format,
   +pcm: List<&2, U32>,
-  eo: {Bool.and(Bool.or(U32.is_eq(nch, 1), U32.is_eq(nch, 2)),
-    Nat.is_eq(Nat.mod(List.length(&2, U32, pcm), U32.to_nat(nch)), 0n)) == ok : Bool}
+  eo: {wf.ok(nch, pcm) == ok : Bool}
 ) -> {wf.of(Au.wav.keep(ok, Au.Clip{hz, nch, fmt, pcm})) == True{} : Bool}:
   match ok:
     case False{}:

@@ -59,24 +59,34 @@ law mp3_pads_32:
   for nn: Nat
   {Mp3.enc.pads(nn, 32000, 0) == List.replicate(Bool, nn, False{}) : List<&2, Bool>}
 
-# LAW: 44 of the first 49 frames at 44100 Hz pad, and the remainder is back to 0,
-# so every 49 frames are 49 * 1044 + 44 bytes for 49 * 1152 samples: 320 kbit/s
+# LAW: every 49 frames at 44100 Hz add 44 padded frames, wherever the stream ends, so every 49
+# frames are 49 * 1044 + 44 bytes for 49 * 1152 samples: 320 kbit/s
 law mp3_pads_44:
-  {D1.pads.cycle() == D1.pads.want() : D1.Cycle}
+  for +nn: Nat
+  {D1.pads.count(Mp3.enc.pads(Nat.add(49n, nn), 44100, 0)) == Nat.add(44n, D1.pads.count(Mp3.enc.pads(nn, 44100, 0)))
+    : Nat}
 
 # LAW: ISO/IEC 11172-3 — the header at 44100 Hz mono reads as MPEG-1 Layer III, 320 kbit/s,
-# 44100 Hz, single channel, no CRC, with its pad bit
+# 44100 Hz, single channel, no CRC, with its pad bit, padded or not
 law mp3_hdr_44_1:
-  {D1.hdr.fields(Mp3.enc.hdr(44100, 1, 1)) == D1.Hf{True{}, 1, 1, 320, 44100, 1, 0, 1} : D1.Hf}
+  for pd: Bool
+  {D1.hdr.fields(Mp3.enc.hdr(44100, 1, Mp3.enc.pad(pd)))
+    == D1.Hf{True{}, 1, 1, 320, 44100, 1, 0, Mp3.enc.pad(pd)} : D1.Hf}
 
-# LAW: ISO/IEC 11172-3 — the header at 44100 Hz stereo reads back its fields
+# LAW: ISO/IEC 11172-3 — the header at 44100 Hz stereo reads back its fields, padded or not
 law mp3_hdr_44_2:
-  {D1.hdr.fields(Mp3.enc.hdr(44100, 2, 0)) == D1.Hf{True{}, 1, 1, 320, 44100, 2, 0, 0} : D1.Hf}
+  for pd: Bool
+  {D1.hdr.fields(Mp3.enc.hdr(44100, 2, Mp3.enc.pad(pd)))
+    == D1.Hf{True{}, 1, 1, 320, 44100, 2, 0, Mp3.enc.pad(pd)} : D1.Hf}
 
-# LAW: ISO/IEC 11172-3 — the header at 48000 Hz reads back its fields
+# LAW: ISO/IEC 11172-3 — the header at 48000 Hz reads back its fields, padded or not
 law mp3_hdr_48:
-  {D1.hdr.fields(Mp3.enc.hdr(48000, 1, 0)) == D1.Hf{True{}, 1, 1, 320, 48000, 1, 0, 0} : D1.Hf}
+  for pd: Bool
+  {D1.hdr.fields(Mp3.enc.hdr(48000, 1, Mp3.enc.pad(pd)))
+    == D1.Hf{True{}, 1, 1, 320, 48000, 1, 0, Mp3.enc.pad(pd)} : D1.Hf}
 
-# LAW: ISO/IEC 11172-3 — the header at 32000 Hz reads back its fields
+# LAW: ISO/IEC 11172-3 — the header at 32000 Hz reads back its fields, padded or not
 law mp3_hdr_32:
-  {D1.hdr.fields(Mp3.enc.hdr(32000, 2, 0)) == D1.Hf{True{}, 1, 1, 320, 32000, 2, 0, 0} : D1.Hf}
+  for pd: Bool
+  {D1.hdr.fields(Mp3.enc.hdr(32000, 2, Mp3.enc.pad(pd)))
+    == D1.Hf{True{}, 1, 1, 320, 32000, 2, 0, Mp3.enc.pad(pd)} : D1.Hf}

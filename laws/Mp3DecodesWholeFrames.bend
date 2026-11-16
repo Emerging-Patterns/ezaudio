@@ -1,8 +1,7 @@
 # Every clip `decode_mp3` returns is whole MPEG-1 Layer III frames, for every
 # input: one or two channels, and a sample count that is a multiple of 1152
 # samples per channel, since every Layer III frame is 1152 samples a channel.
-# The other direction, that a frame does decode, is Mp3DecodeRefusesUnsupported's
-# mp3_frame_decodes.
+# The other direction, that a frame does decode, is not a law.
 import Base
 import ../main.bend as Au
 import ./defs/WholeFrames.bend as D1

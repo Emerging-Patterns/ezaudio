@@ -82,12 +82,15 @@ def frames(c: Clip) -> List<&2, U32>:
     case Clip{_hz, _nch, _fmt, +pcm}:
       pcm
 
-def count.of(+channels: U32, +nsamples: U32) -> U32:
-  match channels:
-    case 0:
+def count.at(zero: Bool, +channels: U32, +nsamples: U32) -> U32:
+  match zero:
+    case True{}:
       0
-    case _:
+    case False{}:
       U32.div(nsamples, channels)
+
+def count.of(+channels: U32, +nsamples: U32) -> U32:
+  count.at(U32.is_eq(channels, 0), channels, nsamples)
 
 # how many frames. zero channels count as none.
 def count(c: Clip) -> U32:

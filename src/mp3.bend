@@ -3,18 +3,6 @@ import Base
 import ./mp3_enc.bend as Enc
 import ./mp3_dec.bend as Dec
 
-# one pulled bit, or a field, beside the reader
-type Bit is Data:
-  Bit{xs: List<&2, U32>, buf: U32, n: U32, v: U32}
-
-# bitstream: leftover bytes, the current byte, how many low bits remain
-type Br is Data:
-  Br{xs: List<&2, U32>, buf: U32, n: U32}
-
-# a field just read
-type Acc is Data:
-  Acc{br: Br, v: U32}
-
 # 'MPEG-1 Layer III' is layer code 1 in the header
 def hdr.layer(xs: List<&2, U32>) -> U32:
   match xs:
@@ -160,68 +148,6 @@ def frame.n(+kb: U32, +hz: U32, +pad: U32) -> U32:
 
 def frame.of(+xs: List<&2, U32>) -> U32:
   frame.n(hdr.kbps(xs), hdr.hz(xs), hdr.pad(xs))
-
-def br.zero(xs: List<&2, U32>) -> Br:
-  Br{xs, 0, 0}
-
-def br.fill(xs: List<&2, U32>) -> Br:
-  match xs:
-    case Nil{}:
-      Br{[], 0, 0}
-    case +hd <> tl:
-      Br{tl, hd, 8}
-
-def br.norm(br: Br) -> Br:
-  match br:
-    case Br{xs, _buf, 0}:
-      br.fill(xs)
-    case Br{xs, buf, n}:
-      Br{xs, buf, n}
-
-def bit.at(z: Bool, xs: List<&2, U32>, +buf: U32, +n: U32) -> Bit:
-  match z:
-    case True{}:
-      Bit{xs, buf, n, 0}
-    case False{}:
-      Bit{xs, buf, (n - 1 : U32), ((buf >> U32.to_nat((n - 1 : U32)) : U32) .&. 1 : U32)}
-
-def br.one.at(br: Br) -> Bit:
-  match br:
-    case Br{xs, +buf, +n}:
-      bit.at(U32.is_eq(n, 0), xs, buf, n)
-
-def br.one(br: Br) -> Bit:
-  br.one.at(br.norm(br))
-
-def br.shift(b: Bit, +acc: U32) -> Acc:
-  match b:
-    case Bit{xs, buf, n, v}:
-      Acc{Br{xs, buf, n}, ((acc << 1n : U32) .|. v : U32)}
-
-def br.next(ac: Acc) -> Acc:
-  match ac:
-    case Acc{br, +v}:
-      br.shift(br.one(br), v)
-
-def br.get(hop: Nat, ac: Acc) -> Acc:
-  match hop:
-    case 0n:
-      ac
-    case 1n+p:
-      br.get(p, br.next(ac))
-
-def br.take(br: Br, +k: U32) -> Acc:
-  br.get(U32.to_nat(k), Acc{br, 0})
-
-def acc.br(ac: Acc) -> Br:
-  match ac:
-    case Acc{br, _v}:
-      br
-
-def acc.v(ac: Acc) -> U32:
-  match ac:
-    case Acc{_br, v}:
-      v
 
 # side-info length in bytes. MPEG-1 mono is 17, stereo is 32.
 def side.n(+ch: U32) -> U32:
@@ -391,7 +317,6 @@ def mp3.encode(
   pcm: List<&2, U32>
 ) -> Maybe<&2, List<&2, U32>>:
   mp3.pick(enc.fit(hz, ch), hz, ch, kind, pcm)
-
 
 # a decoded stream: hertz, channels, interleaved binary32 words
 type Pcm is Data:

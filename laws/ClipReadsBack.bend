@@ -1,26 +1,44 @@
 # `rate`, `channels`, `format` and `frames` read back the rate, channel
-# count, sample format and interleaved frames a clip was built with; `s16`
-# is signed 16-bit PCM and `f32` is IEEE 754 binary32, stored as its bits
+# count, sample format and interleaved frames a clip was built with, for
+# every clip; `s16` is signed 16-bit PCM and `f32` is IEEE 754 binary32,
+# stored as its bits
 import Base
 import ../main.bend as Au
-import ./defs/MonoClip.bend as D1
 
 # LAW: a clip keeps the rate it was built with
 law rate_reads:
-  {Au.rate(D1.fix.mono()) == 8000 : U32}
+  for +hz: U32
+  for +nch: U32
+  for fmt: Au.Format
+  for pcm: List<&2, U32>
+  {Au.rate(Au.clip(hz, nch, fmt, pcm)) == hz : U32}
 
 # LAW: a clip keeps the channel count it was built with
 law channels_read:
-  {Au.channels(D1.fix.mono()) == 1 : U32}
+  for +hz: U32
+  for +nch: U32
+  for fmt: Au.Format
+  for pcm: List<&2, U32>
+  {Au.channels(Au.clip(hz, nch, fmt, pcm)) == nch : U32}
 
-# LAW: s16 is the signed 16-bit format
+# LAW: a clip built as s16 is s16
 law format_s16:
-  {Au.format(Au.clip(8000, 1, Au.s16(), [])) == Au.s16() : Au.Format}
+  for +hz: U32
+  for +nch: U32
+  for pcm: List<&2, U32>
+  {Au.format(Au.clip(hz, nch, Au.s16(), pcm)) == Au.s16() : Au.Format}
 
-# LAW: f32 is the binary32 format
+# LAW: a clip built as f32 is f32
 law format_f32:
-  {Au.format(Au.clip(8000, 1, Au.f32(), [])) == Au.f32() : Au.Format}
+  for +hz: U32
+  for +nch: U32
+  for pcm: List<&2, U32>
+  {Au.format(Au.clip(hz, nch, Au.f32(), pcm)) == Au.f32() : Au.Format}
 
 # LAW: frames reads the samples a clip was built with
 law frames_read:
-  {Au.frames(D1.fix.mono()) == [0, 1] : List<&2, U32>}
+  for +hz: U32
+  for +nch: U32
+  for fmt: Au.Format
+  for +pcm: List<&2, U32>
+  {Au.frames(Au.clip(hz, nch, fmt, pcm)) == pcm : List<&2, U32>}

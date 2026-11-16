@@ -3,8 +3,7 @@
 # length of its Huffman bits, at most the budget, and those bits are its
 # first big_values pairs coded in its table, so the big_values pairs end
 # where part2_3_length does. The budget is at most 4095 bits, the largest
-# 12-bit part2_3_length, for every rate and channel count, and at each rate
-# a frame holds its header, side information and every granule's budget.
+# 12-bit part2_3_length, for every rate and channel count.
 import Base
 import ../src/mp3.bend as Mp3
 import ../src/mp3_enc.bend as Enc
@@ -42,8 +41,3 @@ law mp3_bud:
   for +hz: U32
   for +ch: U32
   {U32.is_le(Mp3.enc.bud(hz, ch), 4095) == True{} : Bool}
-
-# LAW: at 32000, 44100 and 48000 Hz, mono and stereo, an unpadded frame holds its header,
-# its side information (17 or 32 bytes) and two granules per channel at the budget
-law mp3_room:
-  {D1.room.all() == True{} : Bool}

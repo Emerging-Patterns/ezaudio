@@ -112,19 +112,17 @@ def guid.tail() -> List<&2, U32>:
 
 # do the bytes of xs begin ys: ok carries the match so far and stops the walk
 def guid.is(xs: List<&2, U32>, ys: List<&2, U32>, ok: Bool) -> Bool:
-  match xs:
-    case Nil{}:
+  match xs ys:
+    case Nil{} _:
       ok
-    case +hx <> tx:
-      match ys:
-        case Nil{}:
+    case _ Nil{}:
+      False{}
+    case +hx <> tx +hy <> ty:
+      match ok:
+        case False{}:
           False{}
-        case +hy <> ty:
-          match ok:
-            case False{}:
-              False{}
-            case True{}:
-              guid.is(tx, ty, U32.is_eq(hx, hy))
+        case True{}:
+          guid.is(tx, ty, U32.is_eq(hx, hy))
 
 def guid.kind(ok: Bool, +kind: U32) -> U32:
   match ok:
